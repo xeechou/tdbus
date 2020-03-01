@@ -59,11 +59,9 @@ struct tdbus {
 
 	/* watchers */
 	tdbus_add_watch_f add_watch_cb;
-	void *add_watch_userdata;
 	tdbus_rm_watch_f rm_watch_cb;
-	void *rm_watch_userdata;
 	tdbus_ch_watch_f ch_watch_cb;
-	void *ch_watch_userdata;
+	void *watch_userdata;
 	/* timeouts */
 	struct tdbus_timeout_record *timeouts;
 	size_t timeouts_used,  timeouts_allocated;
@@ -76,8 +74,6 @@ struct tdbus {
 	tdbus_read_reply_f read_reply_cb;
 	void *reply_userdata;
 };
-
-static DBusTimeout *tdbus_find_timout_record(struct tdbus *bus, int timerfd);
 
 static void tdbus_dispatch_timeout(void *data, int fd, DBusTimeout *timeout,
                                    struct tdbus *bus);
@@ -112,7 +108,7 @@ tdbus_toggle_watch(DBusWatch *watch, void *data)
 		if (flags & DBUS_WATCH_WRITABLE)
 			mask |= TDBUS_WRITABLE;
 	}
-	bus->ch_watch_cb(bus->ch_watch_userdata, fd, bus, mask, watch);
+	bus->ch_watch_cb(bus->watch_userdata, fd, bus, mask, watch);
 }
 
 static dbus_bool_t
@@ -134,7 +130,7 @@ tdbus_add_watch(DBusWatch *watch, void *data)
 	}
 	fd = dbus_watch_get_unix_fd(watch);
 	//In this callback we need to register this fd as some event callback
-	bus->add_watch_cb(bus->add_watch_userdata, fd, bus, mask, watch);
+	bus->add_watch_cb(bus->watch_userdata, fd, bus, mask, watch);
 
 	return TRUE;
 }
@@ -149,7 +145,7 @@ tdbus_remove_watch(DBusWatch *watch, void *data)
 		return;
 
 	fd = dbus_watch_get_unix_fd(watch);
-	bus->rm_watch_cb(bus->rm_watch_userdata, fd, bus, watch);
+	bus->rm_watch_cb(bus->watch_userdata, fd, bus, watch);
 }
 
 void
@@ -235,15 +231,6 @@ insert_timeout:
 	return true;
 }
 
-static DBusTimeout*
-tdbus_find_timout_record(struct tdbus *bus, int timerfd)
-{
-	for (unsigned i = 0; i < bus->timeouts_used; i++)
-		if ((bus->timeouts + i)->timerfd == timerfd)
-			return (bus->timeouts + i)->timeout;
-	return NULL;
-}
-
 static int
 tdbus_find_timeout_fd(struct tdbus *bus, DBusTimeout *timeout)
 {
@@ -294,10 +281,10 @@ tdbus_add_timeout(DBusTimeout *timeout, void *data)
 			goto err_settime;
 	}
 
-	bus->add_watch_cb(bus->add_watch_userdata, fd, bus,
+	bus->add_watch_cb(bus->watch_userdata, fd, bus,
 	                  TDBUS_READABLE, timeout);
 	tdbus_add_timeout_record(bus, fd, timeout);
-	dbus_timeout_set_data(timeout, bus->add_watch_userdata, NULL);
+	dbus_timeout_set_data(timeout, bus->watch_userdata, NULL);
 
 	return TRUE;
 err_settime:
@@ -324,7 +311,6 @@ static void
 tdbus_toggle_timeout(DBusTimeout *timeout, void *data)
 {
 	struct tdbus *bus = data;
-	void *userdata = dbus_timeout_get_data(timeout);
 	int timerfd = tdbus_find_timeout_fd(bus, timeout);
 
 	if (dbus_timeout_get_enabled(timeout)) {
@@ -364,14 +350,13 @@ tdbus_reader_from_message(DBusMessage *message, struct tdbus_signal *signal,
                           struct tdbus_method_call *call,
                           struct tdbus_reply *reply)
 {
-	const char *member, *iface, *obj_path, *signature, *dest, *sender,
+	const char *member, *iface, *obj_path, *signature, *sender,
 		*error_name;
 
 	member = dbus_message_get_member(message);
 	obj_path = dbus_message_get_path(message);
 	signature = dbus_message_get_signature(message);
 	iface = dbus_message_get_interface(message);
-	dest = dbus_message_get_destination(message);
 	sender = dbus_message_get_sender(message);
 	error_name = dbus_message_get_error_name(message);
 
@@ -386,6 +371,7 @@ tdbus_reader_from_message(DBusMessage *message, struct tdbus_signal *signal,
 		call->interface = iface;
 		call->sender = sender;
 		call->method_name = member;
+		call->object_path = obj_path;
 	}
 
 	if (reply) {
@@ -424,7 +410,8 @@ tdbus_handle_messages(DBusConnection *conn, DBusMessage *message, void *data)
 {
 	//handle incomeing messages,
 	struct tdbus *bus = data;
-	int type, reader_ret;
+	int type, read_ret = 0;
+
 	struct tdbus_message bus_msg = {
 		.message = message,
 		.bus = bus,
@@ -453,23 +440,24 @@ tdbus_handle_messages(DBusConnection *conn, DBusMessage *message, void *data)
 		return DBUS_HANDLER_RESULT_HANDLED;
 
 	case DBUS_MESSAGE_TYPE_SIGNAL:
-		reader_ret = (bus->read_signal_cb) ?
+		read_ret = (bus->read_signal_cb) ?
 			bus->read_signal_cb(&signal) : 0;
 		break;
 
 	case DBUS_MESSAGE_TYPE_METHOD_CALL:
-		reader_ret = (bus->is_server && bus->read_method_cb) ?
+		read_ret = (bus->is_server && bus->read_method_cb) ?
 			bus->read_method_cb(&call) : 0;
 		break;
 
 	case DBUS_MESSAGE_TYPE_ERROR:
 	case DBUS_MESSAGE_TYPE_METHOD_RETURN:
-		reader_ret = (bus->read_reply_cb) ?
+		read_ret = (bus->read_reply_cb) ?
 			bus->read_reply_cb(&reply) : 0;
 		break;
 	}
 
-	return DBUS_HANDLER_RESULT_HANDLED;
+	return (read_ret == 0) ? DBUS_HANDLER_RESULT_HANDLED :
+		DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 }
 
 
@@ -540,6 +528,7 @@ tdbus_set_nonblock(struct tdbus *bus, void *data,
 	bus->ch_watch_cb = chf;
 	bus->rm_watch_cb = rmf;
 	bus->non_block = true;
+	bus->watch_userdata = data;
 
 	r = dbus_connection_set_watch_functions(bus->conn,
 	                                        tdbus_add_watch,
@@ -568,7 +557,7 @@ err_set_func:
 	bus->ch_watch_cb = NULL;
 	bus->rm_watch_cb = NULL;
 	bus->non_block = false;
-	bus->add_watch_userdata = NULL;
+	bus->watch_userdata = NULL;
 }
 
 void
@@ -632,7 +621,6 @@ tdbus_readv(const struct tdbus_message *msg, const char *format, va_list ap)
 bool
 tdbus_writev(struct tdbus_message *tdbus_msg, const char *format, va_list ap)
 {
-	const char *cursor;
 	DBusMessage *message;
 	DBusMessageIter itr;
 	DBusSignatureIter sitr;

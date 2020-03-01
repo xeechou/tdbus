@@ -19,6 +19,10 @@ static int read_listNames(const struct tdbus_reply *reply)
 	const char *interface = reply->interface;
 	const char *err = reply->error_name;
 	const char *signature = reply->signature;
+	(void)(bus_name);
+	(void)(interface);
+	(void)(err);
+	(void)(signature);
 
 	quit = true;
 	return 0;
