@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.1.0)
+project(dbushelper
+  VERSION 0.1
+  LANGUAGES C CXX)
+
+add_definitions(-D_GNU_SOURCE)
+set(CMAKE_BINARY_DIR "${CMAKE_SOURCE_DIR}/build")
+set(CMAKE_MODULE_PATH "${CMAKE_MODULE_PATH}" "${PROJECT_SOURCE_DIR}/cmake")
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Debug)
+endif()
+
+find_package(DBus1 REQUIRED)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+add_subdirectory(src)
+add_subdirectory(test)
