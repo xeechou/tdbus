@@ -117,20 +117,6 @@ tdbus_get_msg_arg_size(int code)
 
 }
 
-static const char *
-tdbus_find_struct_end(const char *format)
-{
-	const char *p = format;
-	while (*p != '\0') {
-		if (*p == '(')
-			p = tdbus_find_struct_end(p+1);
-		else if (*p == ')')
-			break;
-		p++;
-	}
-	return p;
-}
-
 /**
  * right now we support only basica type arries
  */
@@ -278,7 +264,6 @@ tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 static bool
 tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
 {
-	char arr_format[2] = {0};
 	int count, basic_type, size;
 	void *arr_ptr;
 	DBusBasicValue **value_ptr;
@@ -380,8 +365,8 @@ tdbus_read_basic(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
 bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
                     va_list ap)
 {
-	int arg_type, readed_type;
-	int advance;
+	int arg_type;
+	int advance = 0;
 
 	while ((arg_type = dbus_message_iter_get_arg_type(itr)) !=
 	       DBUS_TYPE_INVALID) {
