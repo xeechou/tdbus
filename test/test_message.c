@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <stdbool.h>
 #include <dbus/dbus.h>
 #include <assert.h>
@@ -19,10 +20,22 @@ static int read_listNames(const struct tdbus_reply *reply)
 	const char *interface = reply->interface;
 	const char *err = reply->error_name;
 	const char *signature = reply->signature;
+	char **str_arr; int count;
 	(void)(bus_name);
 	(void)(interface);
 	(void)(err);
-	(void)(signature);
+
+	if (strcmp(signature, "as"))
+		perror("signature not correct!\n");
+	else {
+		tdbus_read(reply->message, "as", &count, &str_arr);
+
+		for (int i = 0; i < count; i++) {
+			printf("%s\n", str_arr[i]);
+			free(str_arr[i]);
+		}
+		free(str_arr);
+	}
 
 	quit = true;
 	return 0;
