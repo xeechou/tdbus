@@ -19,6 +19,7 @@
  *
  */
 
+#include <dbus/dbus-shared.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -465,7 +466,7 @@ tdbus_handle_messages(DBusConnection *conn, DBusMessage *message, void *data)
  * exposed API
  ******************************************************************************/
 struct tdbus *
-tdbus_new(enum TDBUS_TYPE type, const char *address)
+tdbus_new(enum TDBUS_TYPE type)
 {
 	DBusConnection *conn = NULL;
 	DBusBusType bustype = type == SYSTEM_BUS ?
@@ -504,6 +505,22 @@ err_tdbus_alloc:
 	dbus_connection_unref(conn);
 err_bus_alloc:
 	return NULL;
+}
+
+struct tdbus *
+tdbus_new_server(enum TDBUS_TYPE type, const char *bus_name)
+{
+	struct tdbus *bus = tdbus_new(type);
+	if (!bus)
+		return NULL;
+	if (dbus_bus_request_name(bus->conn, bus_name,
+	                      DBUS_NAME_FLAG_DO_NOT_QUEUE,
+	                          NULL)) {
+		tdbus_delete(bus);
+		return NULL;
+	}
+	//TODO, start service?
+	return bus;
 }
 
 void

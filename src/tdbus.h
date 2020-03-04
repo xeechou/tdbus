@@ -89,7 +89,8 @@ struct tdbus_reply {
 	void *user_data;
 };
 
-struct tdbus *tdbus_new(enum TDBUS_TYPE type, const char *address);
+struct tdbus *tdbus_new(enum TDBUS_TYPE type);
+struct tdbus *tdbus_new_server(enum TDBUS_TYPE, const char *bus_name);
 
 void tdbus_delete(struct tdbus *bus);
 

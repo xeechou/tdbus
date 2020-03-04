@@ -43,7 +43,7 @@ static int read_listNames(const struct tdbus_reply *reply)
 
 int main()
 {
-	struct tdbus *bus = tdbus_new(SYSTEM_BUS, NULL);
+	struct tdbus *bus = tdbus_new(SYSTEM_BUS);
 
 	struct tdbus_message *msg1 = tdbus_call_method(
 		DBUS_SERVICE_DBUS, DBUS_PATH_DBUS,
