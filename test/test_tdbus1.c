@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
 	int count = 0;
 
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-	bus = tdbus_new(SYSTEM_BUS, NULL);
+	bus = tdbus_new(SYSTEM_BUS);
 	tdbus_set_nonblock(bus, NULL,
 	                   add_watch, change_watch, remove_watch);
 
