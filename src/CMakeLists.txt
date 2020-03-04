@@ -1,5 +1,6 @@
 add_library(tdbus
-  dbus.c dbus_msg.c)
+  dbus.c
+  dbus_msg.c)
 
 target_link_libraries(tdbus PRIVATE dbus-1)
 

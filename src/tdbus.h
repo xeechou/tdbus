@@ -94,6 +94,9 @@ struct tdbus *tdbus_new_server(enum TDBUS_TYPE, const char *bus_name);
 
 void tdbus_delete(struct tdbus *bus);
 
+bool tdbus_server_add_method(struct tdbus *bus, const char *obj_path,
+                             const char *interface, const char *signature);
+
 typedef int (*tdbus_read_signal_f)(const struct tdbus_signal *);
 typedef int (*tdbus_method_call_f)(const struct tdbus_method_call *);
 typedef int (*tdbus_read_reply_f)(const struct tdbus_reply *);
