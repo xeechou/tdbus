@@ -4,10 +4,15 @@ add_executable(test_tdbus1
 target_link_libraries(test_tdbus1
   tdbus)
 
-
-add_executable(test_message
+add_executable(test_tdbus_message
   test_message.c)
 
-target_link_libraries(test_message
+target_link_libraries(test_tdbus_message
   PRIVATE tdbus dbus-1
   )
+
+add_executable(test_tdbus_service
+  test_service.c)
+
+target_link_libraries(test_tdbus_service
+  PRIVATE tdbus dbus-1)
