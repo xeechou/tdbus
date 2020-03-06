@@ -63,13 +63,19 @@ struct tdbus {
 	/* readers */
 	tdbus_read_signal_f read_signal_cb;
 	void *signal_userdata;
-	tdbus_method_call_f read_method_cb;
+	tdbus_read_call_f read_method_cb;
 	void *method_userdata;
 	tdbus_read_reply_f read_reply_cb;
 	void *reply_userdata;
 
 	/* server data */
-	int n_methods, n_method_alloc;
+	struct {
+		char objpath[32];
+		size_t start;
+		size_t n_methods;
+	} registered_objs[8];
+
+	int n_methods, n_method_alloc, n_objs;
 	struct tdbus_method_record *method_records;
 };
 

@@ -40,7 +40,57 @@ struct tdbus_method_record {
 	char output_signature[16];
 	char interface[32];
 	char signature[32];
+	tdbus_read_call_f reader;
 };
+
+
+/*******************************************************************************
+ * string writer for introspect
+ ******************************************************************************/
+
+struct tdbus_str {
+	size_t wn, wa;
+	char *written;
+};
+
+static bool
+tdbus_str_init(struct tdbus_str *writer)
+{
+	writer->wn = 0;
+	writer->wa = 1000;
+	writer->written = malloc(writer->wa * sizeof(char));
+	if (!writer->written)
+		return false;
+	return true;
+}
+
+static void
+tdbus_str_fini(struct tdbus_str *writer)
+{
+	if (writer->written)
+		free(writer->written);
+}
+
+static bool
+tdbus_str_write(struct tdbus_str *writer, const char *format,
+                size_t n2write, ...)
+{
+	va_list ap;
+	char *new_alloc = NULL;
+	//realloc
+	if (writer->wn + n2write >= writer->wa) {
+		new_alloc = realloc(writer->written, writer->wa + 1000);
+		if (!new_alloc)
+			return false;
+		writer->written = new_alloc;
+		writer->wa += 1000;
+	}
+	//write
+	va_start(ap, n2write);
+	writer->wn += vsprintf(writer->written + writer->wn, format, ap);
+	va_end(ap);
+	return true;
+}
 
 static DBusHandlerResult
 tdbus_server_get_property(struct tdbus *bus, DBusMessage *reply,
@@ -60,14 +110,13 @@ tdbus_server_get_property(struct tdbus *bus, DBusMessage *reply,
 	return DBUS_HANDLER_RESULT_HANDLED;
 }
 
-static char *
-tdbus_server_instropect_method(struct tdbus_method_record *record)
+static bool
+tdbus_server_instropect_method(struct tdbus_str* writer,
+                               struct tdbus_method_record *record)
 {
-	char *output = NULL;
-	char *cursor;
 	DBusSignatureIter sitr;
 	dbus_bool_t advance;
-	size_t arg_index, wa;
+	size_t arg_index;
 
 	const char *format_method_start = "    <method name='%s'>\n";
 	const char *format_method_end = "    </method>\n";
@@ -76,45 +125,39 @@ tdbus_server_instropect_method(struct tdbus_method_record *record)
 	const char *signatures[2] = {record->signature, record->output_signature};
 	const char *io[2] = {"in", "out"};
 
-	output = malloc(1000);
-	if (!output)
-		return NULL;
-	wa = 1000;
-
-	cursor = output;
-	cursor += sprintf(cursor, format_method_start, record->method);
+	if (!tdbus_str_write(writer, format_method_start,
+	                     strlen(format_method_start)+strlen(record->method),
+	                     record->method))
+		return false;
 	// process args
 	arg_index = 0;
 	for (int i = 0; i < 2; i++) {
 		dbus_signature_iter_init(&sitr, signatures[i]);
 		do {
-			char *curr_sig = dbus_signature_iter_get_signature(&sitr);
-			if (wa < cursor - output + (strlen(format_arg) +
-			                            strlen(curr_sig) + 4)) {
-				char *new_alloc = realloc(output, wa + 1000);
-				if (!new_alloc) {
-					free(output);
-					return NULL;
-				}
-			}
+			char *sig = dbus_signature_iter_get_signature(&sitr);
+			if (!tdbus_str_write(writer, format_arg,
+			                     strlen(format_arg) +
+			                     strlen(io[i]) + strlen(sig),
+			                     arg_index, sig, io[i]))
+				return false;
 
-			cursor += sprintf(cursor, format_arg, arg_index,
-			                  curr_sig, io[i]);
-			dbus_free(curr_sig);
+			dbus_free(sig);
 			advance = dbus_signature_iter_next(&sitr);
 			arg_index++;
 		} while (advance == TRUE);
 	}
-
-	cursor += sprintf(cursor, "%s", format_method_end);
-
-	return output;
+	if (!tdbus_str_write(writer, "%s", strlen(format_method_end),
+		    format_method_end))
+		return false;
+	return true;
 }
 
 static DBusHandlerResult
-tdbus_server_reply_introspect(struct tdbus *bus, DBusMessage *reply)
+tdbus_server_reply_introspect(struct tdbus *bus, DBusMessage *reply,
+                              struct tdbus_method_record *records,
+                              size_t n_records)
 {
-	static const char *introspect_template0 =
+	static const char *introspect_start =
 		DBUS_INTROSPECT_1_0_XML_DOCTYPE_DECL_NODE
 		"<node>\n"
 		"  <interface name='org.freedesktop.DBus.Introspectable'>\n"
@@ -122,7 +165,6 @@ tdbus_server_reply_introspect(struct tdbus *bus, DBusMessage *reply)
 		"      <arg name='data' type='s' direction='out' />\n"
 		"    </method>\n"
 		"  </interface>\n"
-
 		"  <interface name='org.freedesktop.DBus.Properties'>\n"
 		"    <method name='Get'>\n"
 		"      <arg name='interface' type='s' direction='in' />\n"
@@ -130,76 +172,60 @@ tdbus_server_reply_introspect(struct tdbus *bus, DBusMessage *reply)
 		"      <arg name='value'     type='s' direction='out' />\n"
 		"    </method>\n"
 		"  </interface>\n";
-	static const char *introspect_template1 = "</node>\n";
-
+	static const char *introspect_end = "</node>\n";
 	static const char *interface_start = "  <interface name='%s'>\n";
 	static const char *interface_end = "  </interface>\n";
 
-	char *written = NULL;
-	size_t wa = 1000;
-	int madv = 0, wn = 0;
-	//dealing with every interface, this must be horrible
-	written = malloc(wa * sizeof(char));
-	if (!written)
-		goto err_alloc;
-	wn += sprintf(written+wn, "%s", introspect_template0);
+	struct tdbus_str writer;
+	unsigned madv;
+
+	if (!tdbus_str_init(&writer))
+		goto fail;
+
+	if (!tdbus_str_write(&writer, "%s", strlen(introspect_start),
+	                     introspect_start))
+		goto fail;
 
 	//for every interface
-	for (int i = 0; i < bus->n_methods; i+= madv) {
-		const char *iface = bus->method_records[i].interface;
-		//realloc
-		if (wa - wn <= strlen(interface_start) + strlen(iface)) {
-			char *new_alloc = realloc(written, (wa+1000));
-			if (!new_alloc)
-				goto err_alloc;
-			written = new_alloc;
-		}
-		wn += sprintf(written+wn, interface_start, iface);
+	for (unsigned i = 0; i < n_records; i += madv) {
+		const char *iface = records[i].interface;
+		madv = 0;
+		if (!tdbus_str_write(&writer, interface_start,
+		                     strlen(interface_start) + strlen(iface),
+		                     iface))
+			goto fail;
 		//for every method
-		while (!strcmp(iface, bus->method_records[i+madv].interface)) {
+		while (i+madv < n_records &&
+		       !strcmp(iface, records[i+madv].interface)) {
 			struct tdbus_method_record *record =
-				&bus->method_records[i+madv];
-			//this is horrible
-			char *method = tdbus_server_instropect_method(record);
-			// realloc
-			if (wa - wn <= strlen(method)) {
-				char *new_alloc = realloc(written, (wa+1000));
-				if (!new_alloc)
-					goto err_alloc;
-				written = new_alloc;
-			}
-			wn += sprintf(written+wn, "%s", method);
-			free(method);
+				&records[i+madv];
+
+			if (!tdbus_server_instropect_method(&writer, record))
+				goto fail;
 			madv++;
 		}
 		//realloc
-		if (wa - wn <= strlen(interface_end)) {
-			char *new_alloc = realloc(written, (wa+1000));
-			if (!new_alloc)
-				goto err_alloc;
-			written = new_alloc;
-		}
-		wn += sprintf(written+wn, "%s", interface_end);
+		if (!tdbus_str_write(&writer, "%s", strlen(interface_end),
+		                     interface_end))
+			goto fail;
 	}
 
 	//write the foot
-        if (wa - wn <= strlen(introspect_template1)) {
-	        char *new_alloc = realloc(written, (wa + 1000) * sizeof(char));
-	        if (!new_alloc)
-		        goto err_alloc;
-	        written = new_alloc;
-        }
-        wn += sprintf(written+wn, "%s", introspect_template1);
+	if (!tdbus_str_write(&writer, "%s", strlen(introspect_end),
+	                     introspect_end))
+		goto fail;
+
 	dbus_message_append_args(reply,
 	                         DBUS_TYPE_STRING,
-	                         &written,
+	                         &writer.written,
 	                         DBUS_TYPE_INVALID);
 
-	free(written);
+	printf("%s", writer.written);
+	tdbus_str_fini(&writer);
+
 	return DBUS_HANDLER_RESULT_HANDLED;
-err_alloc:
-	if (written)
-		free(written);
+fail:
+	tdbus_str_fini(&writer);
 	return DBUS_HANDLER_RESULT_NEED_MEMORY;
 }
 
@@ -211,6 +237,9 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 	DBusHandlerResult result;
 	DBusMessage *reply = NULL;
 	DBusError err;
+	const char *obj_path;
+	struct tdbus_method_record *records = NULL;
+	int n_records = 0;
 
 	struct tdbus_message bus_msg = {
 		.bus = bus,
@@ -223,6 +252,17 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 	};
 
 	dbus_error_init(&err);
+	obj_path = dbus_message_get_path(message);
+	for (int i = 0; i < bus->n_objs; i++) {
+		if (!strcmp(obj_path, bus->registered_objs[i].objpath)) {
+			size_t start = bus->registered_objs[i].start;
+			records = &bus->method_records[start];
+			n_records = bus->registered_objs[i].n_methods;
+			break;
+		}
+	}
+	if (!records) //obj not found
+		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
 	if (dbus_message_is_method_call(message,
 	                                DBUS_INTERFACE_INTROSPECTABLE,
@@ -230,7 +270,8 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 		//return this xml back to dbus connection
 		if (!(reply = dbus_message_new_method_return(message)))
 			goto err_new_reply;
-		result = tdbus_server_reply_introspect(bus, reply);
+		result = tdbus_server_reply_introspect(bus, reply,
+		                                       records, n_records);
 
 	} else if (dbus_message_is_method_call(message,
 	                                       DBUS_INTERFACE_PROPERTIES,
@@ -274,6 +315,25 @@ static void
 tdbus_server_unregister(DBusConnection *conn, void *user_data)
 {}
 
+static bool
+tdbus_server_allocate_methods(struct tdbus *bus, size_t n_methods)
+{
+	if (bus->n_methods + (int)n_methods > bus->n_method_alloc) {
+		struct tdbus_method_record *alloc;
+		int nalloc = bus->n_method_alloc * 2 >
+			bus->n_method_alloc + (int)n_methods ?
+			bus->n_method_alloc * 2 :
+			bus->n_method_alloc + (int)n_methods;
+
+		alloc = realloc(bus->method_records,
+		                nalloc * sizeof(struct tdbus_method_record));
+		if (!alloc)
+			return false;
+		bus->method_records = alloc;
+		bus->n_method_alloc = nalloc;
+	}
+	return true;
+}
 
 static const DBusObjectPathVTable server_vtable = {
 	.message_function = tdbus_server_handle_method,
@@ -282,43 +342,66 @@ static const DBusObjectPathVTable server_vtable = {
 
 
 /*******************************************************************************
- * exposed
+ * exposed API
  ******************************************************************************/
-
 
 /**
  * allocating methods
  */
 bool
-tdbus_server_add_method(struct tdbus *bus, const char *obj_path,
-                        const char *interface, const char *signature)
+tdbus_server_add_methods(struct tdbus *bus, const char *obj_path,
+                         unsigned int n_methods, struct tdbus_call_answer *answers)
 {
-	size_t ns;
-	struct tdbus_method_record new_record;
 	DBusError err;
+	struct tdbus_method_record *records;
 
-	if (strlen(interface) > 31 || strlen(signature) > 31)
+	if (!n_methods)
 		return false;
 
+	if (bus->n_objs > 7 || strlen(obj_path) > 31)
+		return false;
+
+	for (int i = 0; i < bus->n_objs; i++) {
+		if (!strcmp(bus->registered_objs[i].objpath, obj_path))
+			//obj already registered
+			return false;
+	}
+
+	for (unsigned i = 0; i < n_methods; i++) {
+		if (!answers->reader ||
+		    strlen(answers->interface) > 31 ||
+		    strlen(answers->in_signature) > 31 ||
+		    strlen(answers->out_signature) > 15 ||
+		    strlen(answers->method) > 15)
+			return false;
+	}
+
+	records = dbus_malloc(n_methods * sizeof(struct tdbus_method_record));
+	if (!records)
+		return false;
+
+	for (unsigned i = 0; i < n_methods; i++) {
+		strcpy(records[i].interface, answers[i].interface);
+		strcpy(records[i].method, answers[i].method);
+		strcpy(records[i].signature, answers[i].in_signature);
+		strcpy(records[i].output_signature, answers[i].out_signature);
+		records[i].reader = answers[i].reader;
+	}
+	// add records
 	if (!bus->method_records) {
-		bus->method_records =
-			dbus_malloc0(sizeof(struct tdbus_method_record) * 4);
-		bus->n_methods = 0;
-		bus->n_method_alloc = 4;
+		bus->method_records = records;
+		bus->n_methods = n_methods;
+		bus->n_method_alloc = n_methods;
+	} else {
+		if (!tdbus_server_allocate_methods(bus, n_methods))
+			goto err_alloc;
+		memcpy(bus->method_records+bus->n_methods, records,
+		       sizeof(struct tdbus_method_record) * n_methods);
+		bus->n_methods += n_methods;
+		dbus_free(records);
 	}
 
-	if (bus->n_methods >= bus->n_method_alloc) {
-		ns = bus->n_method_alloc * 2;
-		bus->method_records =
-			dbus_realloc(bus->method_records,
-			             sizeof(struct tdbus_method_record) * ns);
-		bus->n_method_alloc = ns;
-	}
-
-	strcpy(new_record.interface, interface);
-	strcpy(new_record.signature, signature);
-	bus->method_records[bus->n_methods] = new_record;
-	bus->n_methods += 1;
+	// add callback
 	dbus_error_init(&err);
 	if ((dbus_connection_try_register_object_path(bus->conn,
 	                                              obj_path, &server_vtable,
@@ -326,7 +409,21 @@ tdbus_server_add_method(struct tdbus *bus, const char *obj_path,
 		perror("register object path not succeed\n");
 	}
 	dbus_error_free(&err);
+
+	//add new object path
+	strcpy(bus->registered_objs[bus->n_objs].objpath, obj_path);
+	bus->registered_objs[bus->n_objs].n_methods = n_methods;
+	bus->registered_objs[bus->n_objs].start = (bus->n_objs) == 0 ?
+		0 : bus->registered_objs[bus->n_objs-1].start +
+		bus->registered_objs[bus->n_objs-1].n_methods;
+	bus->n_objs += 1;
+
 	return true;
+
+err_alloc:
+	if (records)
+		dbus_free(records);
+	return false;
 }
 
 
