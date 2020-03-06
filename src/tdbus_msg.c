@@ -1,5 +1,5 @@
 /*
- * dbus.c - dbus message implementation
+ * tdbus_msg.c - tdbus message implementation
  *
  * Copyright (c) 2020 Xichen Zhou
  *
@@ -29,7 +29,8 @@
 #include <unistd.h>
 #include <assert.h>
 
-#include "tdbus.h"
+#include <tdbus.h>
+#include "tdbus_internal.h"
 
 bool tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
                      va_list ap);
@@ -413,4 +414,54 @@ bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 		return true;
 	else
 		return false;
+}
+
+
+/**
+ * scanf
+ */
+void
+tdbus_readv(const struct tdbus_message *msg, const char *format, va_list ap)
+{
+	DBusMessageIter iter;
+	DBusSignatureIter sig_itr;
+	DBusMessage *message = msg->message;
+
+	//now we go through the list of message
+	//actually read the message
+	if (dbus_signature_validate(format, NULL) != TRUE)
+		return;
+
+	dbus_signature_iter_init(&sig_itr, format);
+	dbus_message_iter_init(message, &iter);
+
+	tdbus_read_itr(&sig_itr, &iter, ap);
+}
+
+/**
+ * printf
+ */
+bool
+tdbus_writev(struct tdbus_message *tdbus_msg, const char *format, va_list ap)
+{
+	DBusMessage *message;
+	DBusMessageIter itr;
+	DBusSignatureIter sitr;
+
+	if (dbus_signature_validate(format, NULL) != TRUE)
+		return false;
+
+	message = tdbus_msg->message;
+
+	if (!message)
+		return false;
+
+	dbus_message_iter_init_append(message, &itr);
+	dbus_signature_iter_init(&sitr, format);
+
+	if (!tdbus_write_itr(&sitr, &itr, ap)) {
+		dbus_message_unref(message);
+		return false;
+	}
+	return true;
 }
