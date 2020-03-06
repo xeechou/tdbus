@@ -231,7 +231,7 @@ tdbus_dispatch_once(struct tdbus *bus)
 void
 tdbus_set_reader(struct tdbus *bus,
                  tdbus_read_signal_f sig_reader, void *ud_sig,
-                 tdbus_method_call_f method_reply, void *ud_mc,
+                 tdbus_read_call_f method_reply, void *ud_mc,
                  tdbus_read_reply_f reply_reader, void *ud_rp)
 {
 	bus->signal_userdata = ud_sig;
