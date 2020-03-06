@@ -18,5 +18,6 @@ find_package(DBus1 REQUIRED)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(TDBUS_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/include)
 add_subdirectory(src)
 add_subdirectory(test)
