@@ -12,19 +12,19 @@ static void add_watch(void *user_data, int fd, struct tdbus *bus,
 	int epoll_mask = 0;
 	struct epoll_event ev;
 
-	if (mask & TDBUS_READABLE)
-		epoll_mask |= EPOLLIN;
-	if (mask & TDBUS_WRITABLE)
-		epoll_mask |= EPOLLOUT;
-
-	epoll_mask |= EPOLLET;
-
-	ev.data.ptr = watch_data;
-	ev.events = epoll_mask;
-
 	if (epoll_fd <= 0)
 		return;
-	epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev);
+        if (mask & TDBUS_ENABLED) {
+	        if (mask & TDBUS_READABLE)
+		        epoll_mask |= EPOLLIN;
+	        if (mask & TDBUS_WRITABLE)
+		        epoll_mask |= EPOLLOUT;
+
+	        ev.data.ptr = watch_data;
+	        ev.events = epoll_mask;
+
+	        epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev);
+        }
 }
 
 static void change_watch(void *user_data, int fd, struct tdbus *bus,
@@ -36,15 +36,17 @@ static void change_watch(void *user_data, int fd, struct tdbus *bus,
 	if (epoll_fd <= 0)
 		return;
 
-	if (mask & TDBUS_READABLE)
-		epoll_mask |= EPOLLIN;
-	if (mask & TDBUS_WRITABLE)
-		epoll_mask |= EPOLLOUT;
+        if (mask & TDBUS_ENABLED) {
+	        if (mask & TDBUS_READABLE)
+		        epoll_mask |= EPOLLIN;
+	        if (mask & TDBUS_WRITABLE)
+		        epoll_mask |= EPOLLOUT;
 
-	ev.data.ptr = watch_data;
-	ev.events = epoll_mask;
+	        ev.data.ptr = watch_data;
+	        ev.events = epoll_mask;
 
-	epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+	        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &ev);
+        }
 }
 
 static void remove_watch(void *user_data, int fd, struct tdbus *bus,
