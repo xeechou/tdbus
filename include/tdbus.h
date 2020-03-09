@@ -33,7 +33,6 @@ extern "C" {
 struct tdbus;
 struct tdbus_message;
 
-
 enum TDBUS_TYPE {
 	SYSTEM_BUS,
 	SESSION_BUS,
@@ -42,6 +41,7 @@ enum TDBUS_TYPE {
 enum tdbus_event_mask {
 	TDBUS_READABLE,
 	TDBUS_WRITABLE,
+	TDBUS_ENABLED,
 };
 
 enum tdbus_message_type {
@@ -205,6 +205,10 @@ void tdbus_set_nonblock(struct tdbus *bus, void *data,
 
 
 void tdbus_handle_watch(struct tdbus *bus, void *watch_data);
+
+void tdbus_watch_set_user_data(void *watch_data, void *user_data);
+
+void *tdbus_watch_get_user_data(void *watch_data);
 
 /**
  * @brief dispatch the mainloop once, this is an idle run. I cant believe they

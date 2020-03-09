@@ -57,6 +57,7 @@ tdbus_toggle_watch(DBusWatch *watch, void *data)
 
 	fd = dbus_watch_get_unix_fd(watch);
 	if (dbus_watch_get_enabled(watch)) {
+		mask |= TDBUS_ENABLED;
 		flags = dbus_watch_get_flags(watch);
 		if (flags & DBUS_WATCH_READABLE)
 			mask |= TDBUS_READABLE;
@@ -77,6 +78,7 @@ tdbus_add_watch(DBusWatch *watch, void *data)
 	if (!bus->add_watch_cb)
 		return FALSE;
 	if (dbus_watch_get_enabled(watch)) {
+		mask |= TDBUS_ENABLED;
 		flags = dbus_watch_get_flags(watch);
 		if (flags & DBUS_WATCH_READABLE)
 			mask |= TDBUS_READABLE;
@@ -297,6 +299,17 @@ tdbus_dispatch_timeout(void *data, int timerfd, DBusTimeout *timeout,
 		dbus_timeout_handle(timeout);
 }
 
+void
+tdbus_watch_set_user_data(void *watch_data, void *user_data)
+{
+	dbus_watch_set_data(watch_data, user_data, NULL);
+}
+
+void *
+tdbus_watch_get_user_data(void *watch_data)
+{
+	return dbus_watch_get_data(watch_data);
+}
 
 void
 tdbus_set_nonblock(struct tdbus *bus, void *data,
