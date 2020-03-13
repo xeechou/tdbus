@@ -78,7 +78,7 @@ int main(int argc, char *argv[])
 	int count = 0;
 
 	struct tdbus_call_answer answer = {
-		.interface = "org.taiwins.example",
+		.interface = "org.tdbus.example",
 		.method = "Ping",
 		.in_signature = "s",
 		.out_signature = "s",
@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
 	};
 
 	struct tdbus_call_answer answer1 = {
-		.interface = "org.taiwins.exmaple1",
+		.interface = "org.tdbus.exmaple1",
 		.method = "Echo",
 		.in_signature = "s",
 		.out_signature = "s",
@@ -95,11 +95,11 @@ int main(int argc, char *argv[])
 
 
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-	bus = tdbus_new_server(SESSION_BUS, "org.taiwins");
+	bus = tdbus_new_server(SESSION_BUS, "org.tdbus");
 	tdbus_set_nonblock(bus, NULL,
 	                   add_watch, change_watch, remove_watch);
-	tdbus_server_add_methods(bus, "/org/taiwins", 1, &answer);
-	tdbus_server_add_methods(bus, "/org/taiwins1", 1, &answer1);
+	tdbus_server_add_methods(bus, "/org/tdbus", 1, &answer);
+	tdbus_server_add_methods(bus, "/org/tdbus1", 1, &answer1);
 
 	tdbus_set_reader(bus, read_signal, NULL, read_method, NULL, NULL, NULL);
 
