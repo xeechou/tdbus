@@ -220,7 +220,6 @@ tdbus_server_reply_introspect(struct tdbus *bus, DBusMessage *reply,
 	                         &writer.written,
 	                         DBUS_TYPE_INVALID);
 
-	printf("%s", writer.written);
 	tdbus_str_fini(&writer);
 
 	return DBUS_HANDLER_RESULT_HANDLED;
