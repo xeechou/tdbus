@@ -39,9 +39,9 @@ enum TDBUS_TYPE {
 };
 
 enum tdbus_event_mask {
-	TDBUS_READABLE,
-	TDBUS_WRITABLE,
-	TDBUS_ENABLED,
+	TDBUS_READABLE = 1 << 0,
+	TDBUS_WRITABLE = 1 << 1,
+	TDBUS_ENABLED = 1 << 2,
 };
 
 enum tdbus_message_type {
