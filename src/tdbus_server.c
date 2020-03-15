@@ -228,6 +228,19 @@ fail:
 	return DBUS_HANDLER_RESULT_NEED_MEMORY;
 }
 
+static tdbus_read_call_f
+tdbus_server_find_reader(struct tdbus_method_record *records, int n_methods,
+                         const struct tdbus_method_call *call)
+{
+	struct tdbus_method_record *rec = records;
+	for (rec = records; rec != records + n_methods; rec++) {
+		if (!strcmp(call->method_name, rec->method) &&
+		    !strcmp(call->interface, rec->interface))
+			return rec->reader;
+	}
+	return NULL;
+}
+
 static DBusHandlerResult
 tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
                            void *data)
@@ -237,7 +250,8 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 	DBusMessage *reply = NULL;
 	DBusError err;
 	const char *obj_path;
-	struct tdbus_method_record *records = NULL;
+	struct tdbus_method_record *records = bus->added_methods.data;
+	tdbus_read_call_f reader;
 	int n_records = 0;
 
 	struct tdbus_message bus_msg = {
@@ -251,12 +265,14 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 	};
 
 	dbus_error_init(&err);
+	tdbus_reader_from_message(message, NULL, &call, NULL);
 	obj_path = dbus_message_get_path(message);
+	//find the records
 	for (int i = 0; i < bus->n_objs; i++) {
 		if (!strcmp(obj_path, bus->registered_objs[i].objpath)) {
 			size_t start = bus->registered_objs[i].start;
-			records = &bus->method_records[start];
 			n_records = bus->registered_objs[i].n_methods;
+			records += start;
 			break;
 		}
 	}
@@ -285,10 +301,10 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 		if (!(reply = dbus_message_new_method_return(message)))
 			goto err_new_reply;
 		result = tdbus_server_get_property(bus, reply, property);
-	} else if (bus->read_method_cb) {
-		tdbus_reader_from_message(message, NULL, &call, NULL);
-		bus->read_method_cb(&call); //may send message here
-	} else
+	} else if ((reader = tdbus_server_find_reader(records, n_records,
+	                                              &call)) != NULL)
+		reader(&call);
+	else
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
 	if (reply) {
@@ -314,26 +330,6 @@ static void
 tdbus_server_unregister(DBusConnection *conn, void *user_data)
 {}
 
-static bool
-tdbus_server_allocate_methods(struct tdbus *bus, size_t n_methods)
-{
-	if (bus->n_methods + (int)n_methods > bus->n_method_alloc) {
-		struct tdbus_method_record *alloc;
-		int nalloc = bus->n_method_alloc * 2 >
-			bus->n_method_alloc + (int)n_methods ?
-			bus->n_method_alloc * 2 :
-			bus->n_method_alloc + (int)n_methods;
-
-		alloc = realloc(bus->method_records,
-		                nalloc * sizeof(struct tdbus_method_record));
-		if (!alloc)
-			return false;
-		bus->method_records = alloc;
-		bus->n_method_alloc = nalloc;
-	}
-	return true;
-}
-
 static const DBusObjectPathVTable server_vtable = {
 	.message_function = tdbus_server_handle_method,
 	.unregister_function = tdbus_server_unregister,
@@ -349,10 +345,12 @@ static const DBusObjectPathVTable server_vtable = {
  */
 bool
 tdbus_server_add_methods(struct tdbus *bus, const char *obj_path,
-                         unsigned int n_methods, struct tdbus_call_answer *answers)
+                         unsigned int n_methods,
+                         struct tdbus_call_answer *answers)
 {
 	DBusError err;
-	struct tdbus_method_record *records;
+	struct tdbus_method_record *records, *method;
+	unsigned i;
 
 	if (!n_methods)
 		return false;
@@ -375,29 +373,18 @@ tdbus_server_add_methods(struct tdbus *bus, const char *obj_path,
 			return false;
 	}
 
-	records = dbus_malloc(n_methods * sizeof(struct tdbus_method_record));
+	records = tdbus_array_add(&bus->added_methods,
+	                          n_methods * sizeof(*records));
 	if (!records)
 		return false;
 
-	for (unsigned i = 0; i < n_methods; i++) {
-		strcpy(records[i].interface, answers[i].interface);
-		strcpy(records[i].method, answers[i].method);
-		strcpy(records[i].signature, answers[i].in_signature);
-		strcpy(records[i].output_signature, answers[i].out_signature);
-		records[i].reader = answers[i].reader;
-	}
-	// add records
-	if (!bus->method_records) {
-		bus->method_records = records;
-		bus->n_methods = n_methods;
-		bus->n_method_alloc = n_methods;
-	} else {
-		if (!tdbus_server_allocate_methods(bus, n_methods))
-			goto err_alloc;
-		memcpy(bus->method_records+bus->n_methods, records,
-		       sizeof(struct tdbus_method_record) * n_methods);
-		bus->n_methods += n_methods;
-		dbus_free(records);
+	for (i = 0, method = records; method != records + n_methods;
+	     method++, i++) {
+		strcpy(method->interface, answers[i].interface);
+		strcpy(method->method, answers[i].method);
+		strcpy(method->signature, answers[i].in_signature);
+		strcpy(method->output_signature, answers[i].out_signature);
+		method->reader = answers[i].reader;
 	}
 
 	// add callback
@@ -418,13 +405,7 @@ tdbus_server_add_methods(struct tdbus *bus, const char *obj_path,
 	bus->n_objs += 1;
 
 	return true;
-
-err_alloc:
-	if (records)
-		dbus_free(records);
-	return false;
 }
-
 
 struct tdbus *
 tdbus_new_server(enum TDBUS_TYPE type, const char *bus_name)
@@ -441,4 +422,12 @@ tdbus_new_server(enum TDBUS_TYPE type, const char *bus_name)
 	}
 	bus->service_name = strdup(bus_name);
 	return bus;
+}
+
+
+void
+tdbus_release_methods(struct tdbus *bus)
+{
+	tdbus_array_release(&bus->added_methods);
+	bus->n_objs = 0;
 }

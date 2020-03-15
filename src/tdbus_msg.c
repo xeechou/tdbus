@@ -465,3 +465,148 @@ tdbus_writev(struct tdbus_message *tdbus_msg, const char *format, va_list ap)
 	}
 	return true;
 }
+
+
+/*******************************************************************************
+ * tdbus messenger
+ ******************************************************************************/
+void
+tdbus_reader_from_message(DBusMessage *message, struct tdbus_signal *signal,
+                          struct tdbus_method_call *call,
+                          struct tdbus_reply *reply)
+{
+	const char *member, *iface, *obj_path, *signature, *sender,
+		*error_name;
+
+	member = dbus_message_get_member(message);
+	obj_path = dbus_message_get_path(message);
+	signature = dbus_message_get_signature(message);
+	iface = dbus_message_get_interface(message);
+	sender = dbus_message_get_sender(message);
+	error_name = dbus_message_get_error_name(message);
+
+	if (signal) {
+		signal->signal_name = member;
+		signal->sender = sender;
+		signal->interface = iface;
+		signal->signature = signature;
+	}
+
+	if (call) {
+		call->interface = iface;
+		call->sender = sender;
+		call->method_name = member;
+		call->object_path = obj_path;
+	}
+
+	if (reply) {
+		reply->sender = sender;
+		reply->interface = iface;
+		reply->method_name = member;
+		reply->error_name = error_name;
+		reply->signature = signature;
+	}
+}
+
+static void
+tdbus_notify_reply(DBusPendingCall *pending, void *user_data)
+{
+	//now we need actually a reply message
+	struct tdbus_message *bus_msg = user_data;
+	DBusMessage *message = dbus_pending_call_steal_reply(pending);
+	struct tdbus_reply reply = {
+		.bus = bus_msg->bus,
+		.user_data = bus_msg->user_data,
+		.message = bus_msg,
+	};
+
+	tdbus_reader_from_message(message, NULL, NULL, &reply);
+	bus_msg->message = message;
+	bus_msg->read_reply(&reply);
+
+	dbus_message_unref(message);
+}
+
+struct tdbus_message *
+tdbus_call_method(const char *dest, const char *path,
+                  const char *interface, const char *method,
+                  tdbus_read_reply_f reply, void *user_data)
+{
+	DBusMessage *message;
+	struct tdbus_message *bus_msg;
+
+	if (!dest || !method || !interface || !path)
+		return false;
+
+	message = dbus_message_new_method_call(dest, path, interface, method);
+	if (!message)
+		return NULL;
+
+	bus_msg = dbus_malloc0(sizeof(struct tdbus_message));
+	if (!bus_msg) {
+		dbus_message_unref(message);
+		return NULL;
+	}
+
+	bus_msg->message = message;
+	bus_msg->read_reply = reply;
+	bus_msg->user_data = user_data;
+
+	return bus_msg;
+}
+
+struct tdbus_message *
+tdbus_reply_method(const struct tdbus_message *reply_to,
+                   const char *err_name)
+{
+	DBusMessage *message;
+	struct tdbus_message *bus_msg;
+
+	if (!reply_to->message)
+		return NULL;
+
+	if (err_name)
+		message = dbus_message_new_error(reply_to->message,
+		                                 err_name, NULL);
+	else
+
+          message = dbus_message_new_method_return(reply_to->message);
+
+	bus_msg = dbus_malloc0(sizeof(struct tdbus_message));
+	if (!bus_msg) {
+		dbus_message_unref(message);
+		return NULL;
+	}
+	bus_msg->message = message;
+
+	return bus_msg;
+}
+
+void
+tdbus_send_message(struct tdbus *bus, struct tdbus_message *bus_msg)
+{
+	DBusPendingCall *pending = NULL;
+
+	bus_msg->bus = bus;
+	if (bus_msg->read_reply) {
+		dbus_connection_send_with_reply(bus->conn, bus_msg->message,
+		                                &pending, -1);
+		dbus_pending_call_set_notify(pending, tdbus_notify_reply,
+		                             bus_msg, dbus_free);
+		dbus_pending_call_unref(pending);
+		dbus_message_unref(bus_msg->message);
+
+	} else {
+		dbus_message_set_no_reply(bus_msg->message, TRUE);
+		//free the message right here
+		dbus_connection_send(bus->conn, bus_msg->message, NULL);
+		tdbus_free_message(bus_msg);
+	}
+}
+
+void
+tdbus_free_message(struct tdbus_message *bus_msg)
+{
+	dbus_message_unref(bus_msg->message);
+	dbus_free(bus_msg);
+}

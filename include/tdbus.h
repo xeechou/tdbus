@@ -105,11 +105,10 @@ struct tdbus *tdbus_new_server(enum TDBUS_TYPE, const char *bus_name);
 
 void tdbus_delete(struct tdbus *bus);
 
-/* TODO: may get rid of this */
-void tdbus_set_reader(struct tdbus *bus, tdbus_read_signal_f sig_reader,
-                      void *ud_sig, tdbus_read_call_f method_reply,
-                      void *ud_mc, tdbus_read_reply_f reply_reader,
-                      void *ud_rp);
+bool tdbus_match_signal(struct tdbus *bus,const char *sender,
+                        const char *iface, const char *member,
+                        const char *path, void *user_data,
+                        tdbus_read_signal_f read_signal);
 
 void tdbus_free_message(struct tdbus_message *message);
 

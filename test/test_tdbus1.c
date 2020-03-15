@@ -59,13 +59,6 @@ static void remove_watch(void *user_data, int fd, struct tdbus *bus,
 }
 
 
-static int read_signal(const struct tdbus_signal *signal)
-{
-	char string[100];
-	tdbus_read(signal->message, "s", string);
-	return 0;
-}
-
 int main(int argc, char *argv[])
 {
 	struct epoll_event events[32];
@@ -77,8 +70,6 @@ int main(int argc, char *argv[])
 	bus = tdbus_new(SYSTEM_BUS);
 	tdbus_set_nonblock(bus, NULL,
 	                   add_watch, change_watch, remove_watch);
-
-	tdbus_set_reader(bus, read_signal, NULL, NULL, NULL, NULL, NULL);
 
 	while (true) {
 		tdbus_dispatch_once(bus);
