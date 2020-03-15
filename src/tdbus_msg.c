@@ -31,57 +31,53 @@
 
 #include <tdbus.h>
 #include "tdbus_internal.h"
+#include "tdbus_message_iter.h"
 
-bool tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
-                     va_list ap);
+/*******************************************************************************
+ * tdbus_msg_itr
+ ******************************************************************************/
 
-bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
-                    va_list ap);
+struct _tdbus_message_itr {
+	struct tdbus_message_itr it;
+	struct tdbus_array arr;
+};
 
-static inline int
-tdbus_get_msg_arg_basic_type(int code)
+
+static enum tdbus_arg_type
+tdbus_arg_type_from_dbus(int dbus_type)
 {
-	switch (code) {
-		case 'y':
-			return DBUS_TYPE_BYTE;
-		case 'b':
-			return DBUS_TYPE_BOOLEAN;
-		case 's':
-			return DBUS_TYPE_STRING;
-		case 'h':
-			return DBUS_TYPE_UNIX_FD;
-
-		case 'i': //signed int
-			return DBUS_TYPE_INT16;
-		case 'n':
-			return DBUS_TYPE_INT32;
-		case 'x':
-			return DBUS_TYPE_INT64;
-
-		case 'q': //unsigned int
-			return DBUS_TYPE_UINT16;
-		case 'u':
-			return DBUS_TYPE_UINT32;
-		case 't':
-			return DBUS_TYPE_UINT64;
-
-		case 'd':
-			return DBUS_TYPE_DOUBLE;
-
-		default:
-			return DBUS_TYPE_INVALID;
+	switch (dbus_type) {
+	case DBUS_TYPE_BOOLEAN:
+		return TDBUS_ARG_BOOLEAN;
+	case DBUS_TYPE_BYTE:
+		return TDBUS_ARG_BYTE;
+	case DBUS_TYPE_STRING:
+		return TDBUS_ARG_STRING;
+	case DBUS_TYPE_OBJECT_PATH:
+		return TDBUS_ARG_OBJPATH;
+	case DBUS_TYPE_UNIX_FD:
+		return TDBUS_ARG_FD;
+	case DBUS_TYPE_INT16:
+		return TDBUS_ARG_INT16;
+	case DBUS_TYPE_INT32:
+		return TDBUS_ARG_INT32;
+	case DBUS_TYPE_INT64:
+		return TDBUS_ARG_INT64;
+	case DBUS_TYPE_UINT16:
+		return TDBUS_ARG_UINT16;
+	case DBUS_TYPE_UINT32:
+		return TDBUS_ARG_UINT32;
+	case DBUS_TYPE_UINT64:
+		return TDBUS_ARG_UINT64;
+	case DBUS_TYPE_DOUBLE:
+		return TDBUS_ARG_DOUBLE;
+	case DBUS_TYPE_ARRAY:
+		return TDBUS_ARG_ARRAY;
+	case DBUS_TYPE_STRUCT:
+		return TDBUS_ARG_STRUCT;
+	default:
+		return TDBUS_ARG_UNKNOWN;
 	}
-}
-
-static inline int
-tdbus_get_msg_arg_type(int code)
-{
-	if (code == 'a')
-		return DBUS_TYPE_ARRAY;
-	else if (code == '(')
-		return DBUS_TYPE_STRUCT;
-	else //does not deal with variant, variant is marshalled
-		return tdbus_get_msg_arg_basic_type(code);
 }
 
 static inline size_t
@@ -120,165 +116,165 @@ tdbus_get_msg_arg_size(int code)
 
 }
 
-/**
- * right now we support only basica type arries
- */
-static bool
-tdbus_write_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
-                  int nelem, void *data)
+
+#define tdbus_container_of(ptr, type, member)                                  \
+  ({                                                                           \
+    const __typeof__(((type *)0)->member) *__mptr = (ptr);                     \
+    (type *)((char *)__mptr - offsetof(type, member));                         \
+  })
+
+
+static struct tdbus_message_arg *
+_tdbus_msg_itr_next(struct tdbus_message_itr *itr, int dbus_type)
 {
-	int basic_type;
-	DBusMessageIter sub_itr;
-	DBusBasicValue value;
-	char *sub_signature;
+	struct _tdbus_message_itr *_itr =
+		tdbus_container_of(itr, struct _tdbus_message_itr, it);
+	struct tdbus_message_arg *arg;
+	size_t curr_size = itr->curr * sizeof(struct tdbus_message_arg);
+	size_t size = (itr->curr+1) * sizeof(struct tdbus_message_arg);
 
-	basic_type = dbus_signature_iter_get_element_type(sitr);
-
-	if (!dbus_type_is_basic(basic_type))
-		return false;
-
-	sub_signature = dbus_signature_iter_get_signature(sitr);
-
-	if (dbus_message_iter_open_container(itr, DBUS_TYPE_ARRAY,
-	                                     sub_signature+1, &sub_itr) != TRUE) {
-		dbus_free(sub_signature);
-		return false;
+	if ( size < _itr->arr.alloc) {
+		arg = (struct tdbus_message_arg *)
+			((char *)_itr->arr.data + curr_size);
+		_itr->arr.size += sizeof(struct tdbus_message_arg);
+	} else {
+		arg = tdbus_array_add(&_itr->arr,
+		                      sizeof(struct tdbus_message_arg));
+		if (!arg)
+			return NULL;
+		arg->type = tdbus_arg_type_from_dbus(dbus_type);
+		itr->args = _itr->arr.data;
 	}
 
-	if (dbus_type_is_fixed(basic_type))
-		dbus_message_iter_append_fixed_array(&sub_itr, basic_type, &data, nelem);
-	else {
-		for (int i = 0; i < nelem; i++) {
-			value.str = ((char **)data)[i];
-			dbus_message_iter_append_basic(&sub_itr, basic_type, &value);
-		}
+	itr->curr += 1;
+	return arg;
+}
 
+static inline struct tdbus_message_arg *
+_tdbus_msg_itr_write_next(struct tdbus_message_itr *itr)
+{
+	struct tdbus_message_arg *arg = &itr->args[itr->curr];
+	itr->curr += 1;
+	return arg;
+}
+
+#define tdbus_msg_itr_next(itr, type, dbus_type)                               \
+  (!itr->args) ? va_arg(itr->va, type)                                         \
+            : (type)_tdbus_msg_itr_next(itr, dbus_type)
+
+#define tdbus_msg_itr_write_next(itr, type) \
+	(!itr->args) ? va_arg(itr->va, type) \
+		: *(type *)(&_tdbus_msg_itr_write_next(itr)->arg)
+
+static DBusBasicValue *
+tdbus_msg_itr_get_arr(struct tdbus_message_itr *itr, int type, int count)
+{
+	DBusBasicValue **value_ptr, *value;
+	struct tdbus_message_arg *curr;
+
+	value = malloc(count * tdbus_get_msg_arg_size(type));
+	if (!value)
+		return NULL;
+
+	if (!itr->args) {
+		*va_arg(itr->va, int *) = count;
+		value_ptr = va_arg(itr->va,  DBusBasicValue**);
+		*value_ptr = value;
+	} else {
+		curr = _tdbus_msg_itr_next(itr, type);
+		curr->type = TDBUS_ARG_ARRAY;
+		curr->arg.arr.n = count;
+		curr->arg.arr.type = tdbus_arg_type_from_dbus(type);
+		curr->arg.arr.a = value;
 	}
-	dbus_message_iter_close_container(itr, &sub_itr);
-	dbus_free(sub_signature);
-
-	return true;
+	return value;
 }
 
-static bool
-tdbus_write_struct(DBusSignatureIter *sitr, DBusMessageIter *itr,
-                   va_list ap)
+static void
+tdbus_msg_itr_get_write_arr(struct tdbus_message_itr *itr, int *count,
+                            DBusBasicValue **value)
 {
-	DBusMessageIter sub_itr;
-	DBusSignatureIter sub_sitr;
+	struct tdbus_message_arg *arg;
 
-	if (dbus_message_iter_open_container(itr, DBUS_TYPE_STRUCT,
-	                                     NULL, &sub_itr) != TRUE)
-		return false;
-	dbus_signature_iter_recurse(sitr, &sub_sitr);
-
-	tdbus_write_itr(&sub_sitr, &sub_itr, ap);
-
-	dbus_message_iter_close_container(itr, &sub_itr);
-
-	return true;
-}
-
-static bool
-tdbus_write_basic(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
-{
-	DBusBasicValue value;
-	int type = dbus_signature_iter_get_current_type(sitr);
-
-	if (type == DBUS_TYPE_INVALID)
-		return false;
-	switch (type) {
-	case DBUS_TYPE_BYTE:
-		value.byt = (char)va_arg(ap, int);
-		break;
-	case DBUS_TYPE_BOOLEAN:
-		value.bool_val = va_arg(ap, int);
-		break;
-
-	case DBUS_TYPE_STRING:
-	case DBUS_TYPE_OBJECT_PATH:
-		value.str = va_arg(ap, char *);
-		break;
-
-	case DBUS_TYPE_UNIX_FD:
-		value.fd = va_arg(ap, int);
-		break;
-
-	case DBUS_TYPE_INT16: //signed int
-		value.i16 = (int16_t)va_arg(ap, int);
-		break;
-	case DBUS_TYPE_INT32:
-		value.i32 = (int32_t)va_arg(ap, int);
-		break;
-	case DBUS_TYPE_INT64:
-		value.i64 =  (int64_t)va_arg(ap, long);
-		break;
-
-	case DBUS_TYPE_UINT16: //unsigned int
-		value.u16 = (uint16_t)va_arg(ap, unsigned int);
-		break;
-	case DBUS_TYPE_UINT32:
-		value.u32 = (uint32_t)va_arg(ap, unsigned int);
-		break;
-	case DBUS_TYPE_UINT64:
-		value.u64 = (uint64_t)va_arg(ap, unsigned long);
-		break;
-
-	case DBUS_TYPE_DOUBLE:
-		value.dbl = (double)va_arg(ap, double);
-		break;
-
-	default: //impossible
-		assert(0);
-		break;
+	if (!itr->args) {
+		*count = va_arg(itr->va, int);
+		*value = va_arg(itr->va, void *);
+	} else {
+		arg = &itr->args[itr->curr];
+		if (arg->type != TDBUS_ARG_ARRAY)
+			return;
+		*count =  arg->arg.arr.n;
+		*value = arg->arg.arr.a;
+		itr->curr += 1;
 	}
-	dbus_message_iter_append_basic(itr, type, &value);
-
-	return true;
 }
 
-bool
-tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
-                va_list ap)
+static void
+tdbus_msg_itr_done_arr(struct tdbus_message_arg *arg)
 {
-	int t, advance;
+	char **strings = arg->arg.arr.a;
 
-	do {
-		DBusBasicValue value;
-		int arr_size = 0;
-
-		t = dbus_signature_iter_get_current_type(sitr);
-
-		//we support only simple array for now
-		if (t == DBUS_TYPE_ARRAY) {
-			arr_size = (int)va_arg(ap, int);
-			value.str = (void *)va_arg(ap, void *);
-			if (!tdbus_write_array(sitr, itr, arr_size,
-			                       value.str))
-				return false;
-
-		} else if (t == DBUS_TYPE_STRUCT) {
-			if (!tdbus_write_struct(sitr, itr, ap))
-				return false;
-		} else if (dbus_type_is_basic(t)) {
-			if (!tdbus_write_basic(sitr, itr, ap))
-				return false;
-		} else
-			return false;
-
-		advance = dbus_signature_iter_next(sitr);
-
-	} while (advance);
-
-	return true;
+	if (arg->arg.arr.type == TDBUS_ARG_STRING)
+		for (unsigned i = 0; i < arg->arg.arr.n; i++)
+			free(strings[i]);
+	free(arg->arg.arr.a);
 }
+
+struct tdbus_message_itr *
+tdbus_msg_itr_new(void)
+{
+	struct _tdbus_message_itr *itr = malloc(sizeof(*itr));
+
+	if (!itr)
+		return NULL;
+
+	//a invlid address so it wont be  tested postive for itr->va
+	itr->it.args = (void *)0xff;
+	itr->it.curr = 0;
+
+	tdbus_array_init(&itr->arr);
+
+	return &itr->it;
+}
+
+void
+tdbus_msg_itr_done(struct tdbus_message_itr *itr)
+{
+	struct _tdbus_message_itr *_itr =
+		tdbus_container_of(itr, struct _tdbus_message_itr, it);
+	struct tdbus_message_arg *arg;
+
+	tdbus_array_for_each(arg, &_itr->arr) {
+		if (arg->type == TDBUS_ARG_STRUCT)
+			tdbus_msg_itr_done(arg->arg.st);
+		else if (arg->type == TDBUS_ARG_ARRAY)
+			tdbus_msg_itr_done_arr(arg);
+		else if (arg->type == TDBUS_ARG_STRING ||
+		         arg->type == TDBUS_ARG_OBJPATH)
+			free(arg->arg.str);
+	}
+	tdbus_array_release(&_itr->arr);
+	free(_itr);
+}
+
+/*******************************************************************************
+ * tdbus_reader
+ ******************************************************************************/
+
+bool tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                     struct tdbus_message_itr *mitr);
+
+bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                    struct tdbus_message_itr *mitr);
+
 
 static bool
-tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
+tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                 struct tdbus_message_itr *mitr)
 {
 	int count, basic_type, size;
 	void *arr_ptr;
-	DBusBasicValue **value_ptr, basic_value;
+	DBusBasicValue *value, basic_value;
 	DBusMessageIter sub_itr;
 	DBusSignatureIter sub_sitr;
 
@@ -294,18 +290,19 @@ tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
 	size = count * tdbus_get_msg_arg_size(basic_type);
         if (size <= 0)
 		return false;
-	*va_arg(ap, int *) = count;
-	value_ptr = va_arg(ap, DBusBasicValue **);
-	*value_ptr = malloc(size);
+
+        value = tdbus_msg_itr_get_arr(mitr, basic_type, count);
+        if (!value)
+	        return false;
 
 	if (dbus_type_is_fixed(basic_type)) {
 	        dbus_message_iter_get_fixed_array(&sub_itr, &arr_ptr, &count);
 	        //asign values back
-	        memcpy(*value_ptr, arr_ptr, size);
-	} else {
+	        memcpy(value, arr_ptr, size);
+	} else { //this must be a string, which was the longest type
 		for (int i = 0; i < count; i++) {
 			dbus_message_iter_get_basic(&sub_itr, &basic_value);
-			(*value_ptr)[i].str = strdup(basic_value.str);
+			value[i].str = strdup(basic_value.str);
 			dbus_message_iter_next(&sub_itr);
 		}
         }
@@ -314,18 +311,39 @@ tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
 }
 
 static bool
-tdbus_read_struct(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
+tdbus_read_struct(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                  struct tdbus_message_itr *mitr)
 {
 	DBusMessageIter sub_iter;
 	DBusSignatureIter sub_siter;
+	struct tdbus_message_itr sub_mitr = {0}, *_sub_mitr;
+	struct tdbus_message_arg *arg;
+
+	if (!mitr->args) {
+		va_copy(sub_mitr.va, mitr->va);
+		_sub_mitr = &sub_mitr;
+	} else {
+		arg = _tdbus_msg_itr_next(mitr, DBUS_TYPE_STRUCT);
+		arg->type = TDBUS_ARG_STRUCT;
+		arg->arg.st = tdbus_msg_itr_new();
+		if (!arg->arg.st)
+			return false;
+		_sub_mitr = arg->arg.st;
+	}
+	if (!mitr->args) {
+		va_end(mitr->va);
+		va_copy(mitr->va, sub_mitr.va);
+		va_end(sub_mitr.va);
+	}
 
 	dbus_message_iter_recurse(itr, &sub_iter);
 	dbus_signature_iter_recurse(sitr, &sub_siter);
-	return tdbus_read_itr(&sub_siter, &sub_iter, ap);
+	return tdbus_read_itr(&sub_siter, &sub_iter, _sub_mitr);
 }
 
 static bool
-tdbus_read_basic(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
+tdbus_read_basic(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                 struct tdbus_message_itr *mitr)
 {
 	int type = dbus_message_iter_get_arg_type(itr);
 	DBusBasicValue value;
@@ -337,42 +355,51 @@ tdbus_read_basic(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
 
 	switch (type) {
 	case DBUS_TYPE_BYTE:
-		*(char*)va_arg(ap, char *) = value.byt;
+		*(char *)(tdbus_msg_itr_next(mitr, char *, type)) = value.byt;
 		break;
 	case DBUS_TYPE_BOOLEAN:
-		*(bool *)va_arg(ap, bool *) = value.bool_val;
+		*(bool *)(tdbus_msg_itr_next(mitr, bool *, type)) =
+			value.bool_val;
 		break;
 	case DBUS_TYPE_STRING:
 	case DBUS_TYPE_OBJECT_PATH:
-		*(const char **)va_arg(ap, const char **) = strdup(value.str);
+		*(char **)(tdbus_msg_itr_next(mitr, char **, type)) =
+			strdup(value.str);
 		break;
 
 	case DBUS_TYPE_UNIX_FD:
-		*(int *)va_arg(ap, int *) = value.fd;
+		*(int *)(tdbus_msg_itr_next(mitr, int *, type)) = value.fd;
 		break;
 
 	case DBUS_TYPE_INT16: //signed int
-		*(int16_t *)va_arg(ap, int16_t *) = value.i16;
+		*(int16_t *)(tdbus_msg_itr_next(mitr, int16_t *, type)) =
+			value.i16;
 		break;
 	case DBUS_TYPE_INT32:
-		*(int32_t *)va_arg(ap, int32_t *) = value.i32;
+		*(int32_t *)(tdbus_msg_itr_next(mitr, int32_t *, type)) =
+			value.i32;
 		break;
 	case DBUS_TYPE_INT64:
-		*(int64_t *)va_arg(ap, int64_t *) = value.i64;
+		*(int64_t *)(tdbus_msg_itr_next(mitr, int64_t *, type)) =
+			value.i64;
 		break;
 
 	case DBUS_TYPE_UINT16: //unsigned int
-		*(uint16_t *)va_arg(ap, uint16_t *) = value.u16;
+		*(uint16_t *)(tdbus_msg_itr_next(mitr, uint16_t *, type)) =
+			value.u16;
 		break;
 	case DBUS_TYPE_UINT32:
-		*(uint32_t *)va_arg(ap, uint32_t *) = value.u32;
+		*(uint32_t *)(tdbus_msg_itr_next(mitr, uint32_t *, type)) =
+			value.u32;
 		break;
 	case DBUS_TYPE_UINT64:
-		*(uint64_t *)va_arg(ap, uint64_t *) = value.u64;
+		*(uint64_t *)(tdbus_msg_itr_next(mitr, uint64_t *, type)) =
+			value.u64;
 		break;
 
 	case DBUS_TYPE_DOUBLE:
-		*(double *)va_arg(ap, double *) = value.dbl;
+		*(double *)(tdbus_msg_itr_next(mitr, double *, type)) =
+			value.dbl;
 		break;
 
 	default: //impossible
@@ -383,10 +410,11 @@ tdbus_read_basic(DBusSignatureIter *sitr, DBusMessageIter *itr, va_list ap)
 }
 
 bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
-                    va_list ap)
+                    struct tdbus_message_itr *mitr)
 {
 	int arg_type;
 	int advance = 0;
+	//mitr would auto increase
 
 	while ((arg_type = dbus_message_iter_get_arg_type(itr)) !=
 	       DBUS_TYPE_INVALID) {
@@ -395,17 +423,17 @@ bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 			return false;
 
 		if (arg_type == DBUS_TYPE_ARRAY) {
-			if (!tdbus_read_array(sitr, itr, ap))
+			if (!tdbus_read_array(sitr, itr, mitr))
 				return false;
 		} else if (arg_type == DBUS_TYPE_STRUCT) {
-			if (!tdbus_read_struct(sitr, itr, ap))
+			if (!tdbus_read_struct(sitr, itr, mitr))
 				return false;
 		} else if (dbus_type_is_basic(arg_type)) {
-			if (!tdbus_read_basic(sitr, itr, ap))
+			if (!tdbus_read_basic(sitr, itr, mitr))
 				return false;
 		} else //not handling dict and variant
 			return false;
-		//do something?p
+		//do something?
 		dbus_message_iter_next(itr);
 		advance = dbus_signature_iter_next(sitr);
 	}
@@ -416,33 +444,225 @@ bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 		return false;
 }
 
-
-/**
- * scanf
- */
 void
 tdbus_readv(const struct tdbus_message *msg, const char *format, va_list ap)
+{
+	struct tdbus_message_itr itr = {0};
+
+	va_copy(itr.va, ap);
+	tdbus_read_with_iter(msg, format, &itr);
+	va_end(itr.va);
+}
+
+bool
+tdbus_read_with_iter(const struct tdbus_message *msg, const char *format,
+                     struct tdbus_message_itr *itr)
 {
 	DBusMessageIter iter;
 	DBusSignatureIter sig_itr;
 	DBusMessage *message = msg->message;
 
-	//now we go through the list of message
+        //now we go through the list of message
 	//actually read the message
 	if (dbus_signature_validate(format, NULL) != TRUE)
-		return;
+		return false;
 
 	dbus_signature_iter_init(&sig_itr, format);
 	dbus_message_iter_init(message, &iter);
 
-	tdbus_read_itr(&sig_itr, &iter, ap);
+	return tdbus_read_itr(&sig_itr, &iter, itr);
 }
 
-/**
- * printf
- */
+/*******************************************************************************
+ * tdbus_writer
+ ******************************************************************************/
+
+static bool
+tdbus_write_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                  struct tdbus_message_itr *mitr)
+{
+	int basic_type;
+	DBusMessageIter sub_itr;
+	DBusBasicValue value, *value_ptr = NULL;
+	char *sub_signature;
+	int nelem = 0;
+
+	basic_type = dbus_signature_iter_get_element_type(sitr);
+
+	if (!dbus_type_is_basic(basic_type))
+		return false;
+
+	sub_signature = dbus_signature_iter_get_signature(sitr);
+
+	if (dbus_message_iter_open_container(itr, DBUS_TYPE_ARRAY,
+	                                     sub_signature+1, &sub_itr) != TRUE) {
+		dbus_free(sub_signature);
+		return false;
+	}
+
+	tdbus_msg_itr_get_write_arr(mitr, &nelem, &value_ptr);
+	if (!nelem || !value_ptr)
+		return false;
+
+	if (dbus_type_is_fixed(basic_type))
+		dbus_message_iter_append_fixed_array(&sub_itr, basic_type,
+		                                     &value_ptr, nelem);
+	else {
+		for (int i = 0; i < nelem; i++) {
+			value.str = ((char **)value_ptr)[i];
+			dbus_message_iter_append_basic(&sub_itr, basic_type, &value);
+		}
+
+	}
+	dbus_message_iter_close_container(itr, &sub_itr);
+	dbus_free(sub_signature);
+
+	return true;
+}
+
+static bool
+tdbus_write_struct(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                  struct tdbus_message_itr *mitr)
+{
+	DBusMessageIter sub_itr;
+	DBusSignatureIter sub_sitr;
+	struct tdbus_message_itr sub_mitr = {0}, *_sub_mitr;
+	struct tdbus_message_arg *arg;
+
+	if (dbus_message_iter_open_container(itr, DBUS_TYPE_STRUCT,
+	                                     NULL, &sub_itr) != TRUE)
+		return false;
+	dbus_signature_iter_recurse(sitr, &sub_sitr);
+
+	if (!mitr->args) {
+		va_copy(sub_mitr.va, mitr->va);
+		_sub_mitr = &sub_mitr;
+	} else {
+		arg = _tdbus_msg_itr_write_next(mitr);
+		if (arg->type != TDBUS_ARG_STRUCT)
+			return false;
+		_sub_mitr = arg->arg.st;
+	}
+
+	tdbus_write_itr(&sub_sitr, &sub_itr, _sub_mitr);
+
+	if (!mitr->args) {
+		//swaping va_arg
+		va_end(mitr->va);
+		va_copy(mitr->va, sub_mitr.va);
+		va_end(sub_mitr.va);
+	}
+
+	dbus_message_iter_close_container(itr, &sub_itr);
+
+	return true;
+}
+
+static bool
+tdbus_write_basic(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                  struct tdbus_message_itr *mitr)
+{
+	DBusBasicValue value;
+	int type = dbus_signature_iter_get_current_type(sitr);
+
+	if (type == DBUS_TYPE_INVALID)
+		return false;
+	switch (type) {
+	case DBUS_TYPE_BYTE:
+		value.byt = tdbus_msg_itr_write_next(mitr, int);
+		break;
+	case DBUS_TYPE_BOOLEAN:
+		value.bool_val = tdbus_msg_itr_write_next(mitr, int);
+		break;
+
+	case DBUS_TYPE_STRING:
+	case DBUS_TYPE_OBJECT_PATH:
+		value.str = tdbus_msg_itr_write_next(mitr, char *);
+		break;
+
+	case DBUS_TYPE_UNIX_FD:
+		value.fd = tdbus_msg_itr_write_next(mitr, int);
+		break;
+
+	case DBUS_TYPE_INT16: //signed int
+		value.i16 = tdbus_msg_itr_write_next(mitr, int);
+		break;
+	case DBUS_TYPE_INT32:
+		value.i32 = tdbus_msg_itr_write_next(mitr, int);
+		break;
+	case DBUS_TYPE_INT64:
+		value.i64 = tdbus_msg_itr_write_next(mitr, long);
+		break;
+
+	case DBUS_TYPE_UINT16: //unsigned int
+		value.u16 = tdbus_msg_itr_write_next(mitr, unsigned int);
+		break;
+	case DBUS_TYPE_UINT32:
+		value.u32 = tdbus_msg_itr_write_next(mitr, unsigned int);
+		break;
+	case DBUS_TYPE_UINT64:
+		value.u64 = tdbus_msg_itr_write_next(mitr, unsigned long);
+		break;
+
+	case DBUS_TYPE_DOUBLE:
+		value.dbl = tdbus_msg_itr_write_next(mitr, double);
+		break;
+
+	default: //impossible
+		assert(0);
+		break;
+	}
+	dbus_message_iter_append_basic(itr, type, &value);
+
+	return true;
+}
+
+bool
+tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                struct tdbus_message_itr *mitr)
+{
+	int t, advance;
+
+	do {
+		t = dbus_signature_iter_get_current_type(sitr);
+
+		//we support only simple array for now
+		if (t == DBUS_TYPE_ARRAY) {
+			if (!tdbus_write_array(sitr, itr, mitr))
+				return false;
+
+		} else if (t == DBUS_TYPE_STRUCT) {
+			if (!tdbus_write_struct(sitr, itr, mitr))
+				return false;
+		} else if (dbus_type_is_basic(t)) {
+			if (!tdbus_write_basic(sitr, itr, mitr))
+				return false;
+		} else
+			return false;
+
+		advance = dbus_signature_iter_next(sitr);
+
+	} while (advance);
+
+	return true;
+}
+
 bool
 tdbus_writev(struct tdbus_message *tdbus_msg, const char *format, va_list ap)
+{
+	bool ret;
+	struct tdbus_message_itr mitr = {0};
+
+	va_copy(mitr.va, ap);
+	ret = tdbus_write_with_itr(tdbus_msg, format, &mitr);
+	va_end(mitr.va);
+
+	return ret;
+}
+
+bool
+tdbus_write_with_itr(struct tdbus_message *msg, const char *format,
+                     struct tdbus_message_itr *mitr)
 {
 	DBusMessage *message;
 	DBusMessageIter itr;
@@ -451,19 +671,23 @@ tdbus_writev(struct tdbus_message *tdbus_msg, const char *format, va_list ap)
 	if (dbus_signature_validate(format, NULL) != TRUE)
 		return false;
 
-	message = tdbus_msg->message;
+	message = msg->message;
 
 	if (!message)
 		return false;
 
 	dbus_message_iter_init_append(message, &itr);
 	dbus_signature_iter_init(&sitr, format);
+	//if you pass mitr here, you need to be sure to have enough memory
+	//allocated already, and the
+	mitr->curr = 0;
 
-	if (!tdbus_write_itr(&sitr, &itr, ap)) {
+	if (!tdbus_write_itr(&sitr, &itr, mitr)) {
 		dbus_message_unref(message);
 		return false;
 	}
 	return true;
+
 }
 
 

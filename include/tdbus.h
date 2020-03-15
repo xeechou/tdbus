@@ -1,5 +1,5 @@
 /*
- * dbus.c - tdbus headers
+ * dbus.h - tdbus headers
  *
  * Copyright (c) 2020 Xichen Zhou
  *
@@ -26,6 +26,8 @@
 #include <stdarg.h>
 #include <stdint.h>
 
+#include "tdbus_message_iter.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -51,6 +53,7 @@ enum tdbus_message_type {
 	TDBUS_MSG_ERROR,
 	TDBUS_MSG_MAX_ENUM,
 };
+
 
 struct tdbus_signal {
 	const char *sender;
@@ -112,6 +115,7 @@ bool tdbus_match_signal(struct tdbus *bus,const char *sender,
 
 void tdbus_free_message(struct tdbus_message *message);
 
+
 /**
  * @brief reading a message
  *
@@ -140,6 +144,9 @@ static inline void tdbus_read(const struct tdbus_message *msg,
 	va_end(ap);
 }
 
+bool tdbus_read_with_iter(const struct tdbus_message *msg, const char *format,
+                          struct tdbus_message_itr *itr);
+
 /**
  * @brief writing a message
  */
@@ -155,6 +162,9 @@ static inline bool tdbus_write(struct tdbus_message *msg, const char *format, ..
 	va_end(ap);
 	return ret;
 }
+
+bool tdbus_write_with_itr(struct tdbus_message *msg, const char *format,
+                          struct tdbus_message_itr *itr);
 
 /**
  * @brief generate a method call message for writing,

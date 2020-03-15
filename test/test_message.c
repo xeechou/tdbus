@@ -1,3 +1,4 @@
+#include "tdbus_message_iter.h"
 #include <dbus/dbus-shared.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -55,7 +56,7 @@ int main()
 	struct tdbus_message *msg2 = tdbus_call_method(
 		DBUS_SERVICE_DBUS, DBUS_PATH_DBUS,
 		DBUS_INTERFACE_DBUS, "ListNames", NULL, NULL);
-	tdbus_write(msg2, "iad(y)", 18, 4, doubles, 32);
+	tdbus_write(msg2, "iad(y)y", 18, 4, doubles, 32, 35);
 
 	//this would not work
 	struct tdbus_message *msg3 = tdbus_call_method(
@@ -64,7 +65,13 @@ int main()
 
 	double *ptr_doubles = NULL; int a, count; char c;
 	//okay, now we read some message
-	tdbus_read(msg2, "iad(y)", &a, &count, &ptr_doubles, &c);
+	tdbus_read(msg2, "iad(y)y", &a, &count, &ptr_doubles, &c, &c);
+
+	struct tdbus_message_itr *msg_itr = tdbus_msg_itr_new();
+
+	tdbus_read_with_iter(msg2, "iad(y)y", msg_itr);
+	tdbus_msg_itr_done(msg_itr);
+
 
 	if (ptr_doubles)
 		free(ptr_doubles);
