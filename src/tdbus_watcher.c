@@ -122,68 +122,46 @@ tdbus_handle_watch(struct tdbus *bus, void *data)
 /*******************************************************************************
  * dbus timeouts
  ******************************************************************************/
-bool
-tdbus_init_timeouts(struct tdbus *bus)
-{
-	struct tdbus_timeout_record *records =
-		malloc(sizeof(struct tdbus_timeout_record) * 16);
-	if (!records)
-		return false;
-	//set records to -1 so they are invalid
-	memset(records, -1, sizeof(struct tdbus_timeout_record) * 16);
-	bus->timeouts = records;
-	bus->timeouts_used = 0;
-	bus->timeouts_allocated = 16;
-	return true;
-}
-
 void
 tdbus_release_timeouts(struct tdbus *bus)
 {
-	if (bus->timeouts) {
-		free(bus->timeouts);
-		bus->timeouts_allocated = 0;
-		bus->timeouts_used = 0;
+	struct tdbus_timeout_record *rec;
+	void *userdata;
+
+	if (bus->rm_watch_cb) {
+		tdbus_array_for_each(rec, &bus->added_timeouts) {
+			if (rec->timerfd > 0 && rec->timeout) {
+				userdata = dbus_timeout_get_data(rec->timeout);
+				bus->rm_watch_cb(userdata, rec->timerfd, bus,
+				                 rec->timeout);
+			}
+		}
 	}
+
+	tdbus_array_release(&bus->added_timeouts);
 }
 
 static bool
 tdbus_add_timeout_record(struct tdbus *bus, int timerfd, DBusTimeout *timeout)
 {
-	//test if there is still slots inside
-	if (bus->timeouts_used < bus->timeouts_allocated)
-		goto insert_timeout;
+	struct tdbus_timeout_record record, *copy;
 
-	size_t new_size = bus->timeouts_allocated  * 2 *
-		sizeof(struct tdbus_timeout_record);
-	int counter = 0;
+	record.timeout = timeout;
+	record.timerfd = timerfd;
 
-	struct tdbus_timeout_record *new_records =
-		bus->timeouts;
-	if ((new_records = realloc(bus->timeouts, new_size)) == NULL)
-		return false;
-
-	for (unsigned i = 0; i < bus->timeouts_used; i++) {
-		struct tdbus_timeout_record *old_rec =
-			bus->timeouts + i;
-		struct tdbus_timeout_record *new_rec =
-			new_records + counter;
-		struct tdbus_timeout_record tmp = *old_rec;
-
-		if (tmp.timerfd > 0 && tmp.timeout) {
-			*new_rec  = tmp;
-			counter++;
+	// search if there is any empty slots
+	tdbus_array_for_each(copy, &bus->added_timeouts) {
+		if (!copy->timeout || copy->timerfd < 0) { //emtpy
+			copy->timeout = timeout;
+			copy->timerfd = timerfd;
+			return true;
 		}
 	}
-	bus->timeouts = new_records;
-	bus->timeouts_used = counter;
-	bus->timeouts_allocated *= 2;
 
-insert_timeout:
-	new_records = bus->timeouts + bus->timeouts_used;
-	new_records->timeout = timeout;
-	new_records->timerfd = timerfd;
-	bus->timeouts_used += 1;
+	copy = tdbus_array_add(&bus->added_timeouts, sizeof(record));
+	if (!copy)
+		return false;
+	*copy = record;
 
 	return true;
 }
@@ -191,21 +169,27 @@ insert_timeout:
 static int
 tdbus_find_timeout_fd(struct tdbus *bus, DBusTimeout *timeout)
 {
-	for (unsigned i = 0; i < bus->timeouts_used; i++)
-		if ((bus->timeouts + i)->timeout == timeout)
-			return (bus->timeouts + i)->timerfd;
-	return 0;
+	struct tdbus_timeout_record *rec;
+
+	tdbus_array_for_each(rec, &bus->added_timeouts) {
+		if (rec->timeout == timeout)
+			return rec->timerfd;
+	}
+
+	return -1;
 }
 
 static void
 tdbus_rm_timeout_record(struct tdbus *bus, int timerfd)
 {
-	for (unsigned i = 0; i < bus->timeouts_used; i++)
-		if ((bus->timeouts + i)->timerfd == timerfd) {
-			(bus->timeouts+i)->timerfd = -1;
-			(bus->timeouts+i)->timeout = NULL;
-			break;
+	struct tdbus_timeout_record *rec;
+
+	tdbus_array_for_each(rec, &bus->added_timeouts) {
+		if (rec->timerfd == timerfd) {
+			rec->timerfd = -1;
+			rec->timeout = NULL;
 		}
+	}
 }
 
 static dbus_bool_t

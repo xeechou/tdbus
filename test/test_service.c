@@ -58,13 +58,6 @@ static void remove_watch(void *user_data, int fd, struct tdbus *bus,
 	epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 }
 
-static int read_signal(const struct tdbus_signal *signal)
-{
-	char string[100];
-	tdbus_read(signal->message, "s", string);
-	return 0;
-}
-
 static int read_method(const struct tdbus_method_call *call)
 {
 	return 0;
@@ -100,8 +93,6 @@ int main(int argc, char *argv[])
 	                   add_watch, change_watch, remove_watch);
 	tdbus_server_add_methods(bus, "/org/tdbus", 1, &answer);
 	tdbus_server_add_methods(bus, "/org/tdbus1", 1, &answer1);
-
-	tdbus_set_reader(bus, read_signal, NULL, read_method, NULL, NULL, NULL);
 
 	while (true) {
 		tdbus_dispatch_once(bus);
