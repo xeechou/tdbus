@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdbool.h>
-#include <tdbus.h>
 
+#include <unistd.h>
 #include <sys/epoll.h>
+
+#include <tdbus.h>
 
 static int epoll_fd = -1;
 
@@ -71,9 +73,9 @@ int main(int argc, char *argv[])
 	tdbus_set_nonblock(bus, NULL,
 	                   add_watch, change_watch, remove_watch);
 
-	while (true) {
+	for (int i = 0; i < 10; i++) {
 		tdbus_dispatch_once(bus);
-		count = epoll_wait(epoll_fd, events, 32, -1);
+		count = epoll_wait(epoll_fd, events, 32, 200);
 		if (count < 0)
 			break;
 		for (int i = 0; i < count; i++) {
