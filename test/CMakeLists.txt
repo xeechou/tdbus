@@ -1,18 +1,26 @@
-add_executable(test_tdbus1
-  test_tdbus1.c)
+include(CTest)
 
-target_link_libraries(test_tdbus1
-  tdbus)
+find_program(PROG_DBUS_SEND "dbus-send")
+if (NOT PROG_DBUS_SEND)
+  message(FATAL_ERROR "dbus-send not found, tests will not work")
+endif()
 
-add_executable(test_tdbus_message
-  test_message.c)
-
-target_link_libraries(test_tdbus_message
-  PRIVATE tdbus dbus-1
+set(TEST_SRCS
+  test_tdbus1.c
+  test_message.c
+  test_service.c
   )
 
-add_executable(test_tdbus_service
-  test_service.c)
+foreach(src ${TEST_SRCS})
+  get_filename_component(tgt ${src} NAME_WE)
+  add_executable(${tgt}
+    ${src})
+  target_link_libraries(${tgt}
+    PRIVATE tdbus)
+  add_test(NAME test_tdbus_${tgt} COMMAND ${tgt})
+  list(APPEND TDBUS_TESTS ${tgt})
+endforeach()
 
-target_link_libraries(test_tdbus_service
-  PRIVATE tdbus dbus-1)
+add_custom_target(check_tdbus
+  COMMAND ${CMAKE_CTEST_COMMAND}
+  DEPENDS ${TDBUS_TESTS})
