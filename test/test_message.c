@@ -1,16 +1,12 @@
-#include "tdbus_message_iter.h"
-#include <dbus/dbus-shared.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdbool.h>
-#include <dbus/dbus.h>
 #include <assert.h>
 
 #include <tdbus.h>
-#include <dbus/dbus.h>
 
 static bool quit = false;
 
@@ -47,21 +43,21 @@ int main()
 	struct tdbus *bus = tdbus_new(SYSTEM_BUS);
 
 	struct tdbus_message *msg1 = tdbus_call_method(
-		DBUS_SERVICE_DBUS, DBUS_PATH_DBUS,
-		DBUS_INTERFACE_DBUS, "ListNames", NULL, NULL);
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", NULL, NULL);
 
 	tdbus_write(msg1, "ysii", 18, "hello world", 12829099, 1283222);
 
 	double doubles[4] = { 1.0f, 2.0f, 3.0f, 4.0f };
 	struct tdbus_message *msg2 = tdbus_call_method(
-		DBUS_SERVICE_DBUS, DBUS_PATH_DBUS,
-		DBUS_INTERFACE_DBUS, "ListNames", NULL, NULL);
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", NULL, NULL);
 	tdbus_write(msg2, "iad(y)y", 18, 4, doubles, 32, 35);
 
 	//this would not work
 	struct tdbus_message *msg3 = tdbus_call_method(
-		DBUS_SERVICE_DBUS, DBUS_PATH_DBUS,
-		DBUS_INTERFACE_DBUS, "ListNames", read_listNames, NULL);
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", read_listNames, NULL);
 
 	double *ptr_doubles = NULL; int a, count; char c;
 	//okay, now we read some message
@@ -80,9 +76,6 @@ int main()
 	tdbus_free_message(msg2);
 
 	tdbus_send_message(bus, msg3);
-	while(!quit) {
-		tdbus_dispatch_once(bus);
-	}
 
 	tdbus_delete(bus);
 }
