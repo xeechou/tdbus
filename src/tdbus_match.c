@@ -53,7 +53,7 @@ tdbus_unmatch_signals(struct tdbus *bus)
 	tdbus_array_release(&bus->matched_signals);
 }
 
-bool
+TDBUS_EXPORT bool
 tdbus_match_signal(struct tdbus *bus,const char *sender,
                    const char *iface, const char *member,
                    const char *path, void *user_data,

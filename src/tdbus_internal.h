@@ -28,6 +28,13 @@
 
 #include <tdbus.h>
 
+/** Visibility */
+#if defined(__GNUC__) && __GNUC__ >= 4
+#define TDBUS_EXPORT __attribute__ ((visibility("default")))
+#else
+#define TDBUS_EXPORT
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

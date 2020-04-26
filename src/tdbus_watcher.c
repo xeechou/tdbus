@@ -105,7 +105,7 @@ tdbus_remove_watch(DBusWatch *watch, void *data)
 	bus->rm_watch_cb(bus->watch_userdata, fd, bus, watch);
 }
 
-void
+TDBUS_EXPORT void
 tdbus_handle_watch(struct tdbus *bus, void *data)
 {
 	DBusTimeout *timeout = data;
@@ -283,19 +283,19 @@ tdbus_dispatch_timeout(void *data, int timerfd, DBusTimeout *timeout,
 		dbus_timeout_handle(timeout);
 }
 
-void
+TDBUS_EXPORT void
 tdbus_watch_set_user_data(void *watch_data, void *user_data)
 {
 	dbus_watch_set_data(watch_data, user_data, NULL);
 }
 
-void *
+TDBUS_EXPORT void *
 tdbus_watch_get_user_data(void *watch_data)
 {
 	return dbus_watch_get_data(watch_data);
 }
 
-void
+TDBUS_EXPORT void
 tdbus_set_nonblock(struct tdbus *bus, void *data,
                    tdbus_add_watch_f addf,
                    tdbus_ch_watch_f chf,

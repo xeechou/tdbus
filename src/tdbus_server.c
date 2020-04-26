@@ -246,7 +246,7 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
                            void *data)
 {
 	struct tdbus *bus = data;
-	DBusHandlerResult result;
+	DBusHandlerResult result = DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 	DBusMessage *reply = NULL;
 	DBusError err;
 	const char *obj_path;
@@ -302,9 +302,10 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 			goto err_new_reply;
 		result = tdbus_server_get_property(bus, reply, property);
 	} else if ((reader = tdbus_server_find_reader(records, n_records,
-	                                              &call)) != NULL)
+	                                              &call)) != NULL) {
 		reader(&call);
-	else
+		result = DBUS_HANDLER_RESULT_HANDLED;
+	} else
 		return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
 
 	if (reply) {
@@ -343,7 +344,7 @@ static const DBusObjectPathVTable server_vtable = {
 /**
  * allocating methods
  */
-bool
+TDBUS_EXPORT bool
 tdbus_server_add_methods(struct tdbus *bus, const char *obj_path,
                          unsigned int n_methods,
                          struct tdbus_call_answer *answers)
@@ -407,7 +408,7 @@ tdbus_server_add_methods(struct tdbus *bus, const char *obj_path,
 	return true;
 }
 
-struct tdbus *
+TDBUS_EXPORT struct tdbus *
 tdbus_new_server(enum TDBUS_TYPE type, const char *bus_name)
 {
 	struct tdbus *bus = tdbus_new(type);

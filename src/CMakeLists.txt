@@ -7,5 +7,8 @@ add_library(tdbus
   tdbus_match.c)
 
 target_link_libraries(tdbus PRIVATE dbus-1)
+target_compile_options(tdbus
+  PRIVATE "-fvisibility=hidden"
+  )
 
 target_include_directories(tdbus PUBLIC ${TDBUS_INCLUDE_DIR})

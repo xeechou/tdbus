@@ -444,7 +444,7 @@ bool tdbus_read_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 		return false;
 }
 
-void
+TDBUS_EXPORT void
 tdbus_readv(const struct tdbus_message *msg, const char *format, va_list ap)
 {
 	struct tdbus_message_itr itr = {0};
@@ -454,7 +454,7 @@ tdbus_readv(const struct tdbus_message *msg, const char *format, va_list ap)
 	va_end(itr.va);
 }
 
-bool
+TDBUS_EXPORT bool
 tdbus_read_with_iter(const struct tdbus_message *msg, const char *format,
                      struct tdbus_message_itr *itr)
 {
@@ -647,7 +647,7 @@ tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 	return true;
 }
 
-bool
+TDBUS_EXPORT bool
 tdbus_writev(struct tdbus_message *tdbus_msg, const char *format, va_list ap)
 {
 	bool ret;
@@ -660,7 +660,7 @@ tdbus_writev(struct tdbus_message *tdbus_msg, const char *format, va_list ap)
 	return ret;
 }
 
-bool
+TDBUS_EXPORT bool
 tdbus_write_with_itr(struct tdbus_message *msg, const char *format,
                      struct tdbus_message_itr *mitr)
 {
@@ -751,7 +751,7 @@ tdbus_notify_reply(DBusPendingCall *pending, void *user_data)
 	dbus_message_unref(message);
 }
 
-struct tdbus_message *
+TDBUS_EXPORT struct tdbus_message *
 tdbus_call_method(const char *dest, const char *path,
                   const char *interface, const char *method,
                   tdbus_read_reply_f reply, void *user_data)
@@ -779,7 +779,7 @@ tdbus_call_method(const char *dest, const char *path,
 	return bus_msg;
 }
 
-struct tdbus_message *
+TDBUS_EXPORT struct tdbus_message *
 tdbus_reply_method(const struct tdbus_message *reply_to,
                    const char *err_name)
 {
@@ -806,7 +806,7 @@ tdbus_reply_method(const struct tdbus_message *reply_to,
 	return bus_msg;
 }
 
-void
+TDBUS_EXPORT void
 tdbus_send_message(struct tdbus *bus, struct tdbus_message *bus_msg)
 {
 	DBusPendingCall *pending = NULL;
@@ -828,7 +828,7 @@ tdbus_send_message(struct tdbus *bus, struct tdbus_message *bus_msg)
 	}
 }
 
-void
+TDBUS_EXPORT void
 tdbus_free_message(struct tdbus_message *bus_msg)
 {
 	dbus_message_unref(bus_msg->message);

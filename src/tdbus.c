@@ -88,7 +88,7 @@ tdbus_handle_messages(DBusConnection *conn, DBusMessage *message, void *data)
 /*******************************************************************************
  * exposed API
  ******************************************************************************/
-struct tdbus *
+TDBUS_EXPORT struct tdbus *
 tdbus_new(enum TDBUS_TYPE type)
 {
 	DBusConnection *conn = NULL;
@@ -129,7 +129,7 @@ err_bus_alloc:
 	return NULL;
 }
 
-void
+TDBUS_EXPORT void
 tdbus_delete(struct tdbus *bus)
 {
 	if (bus->service_name)
@@ -146,7 +146,7 @@ tdbus_delete(struct tdbus *bus)
 	dbus_free(bus);
 }
 
-void
+TDBUS_EXPORT void
 tdbus_dispatch_once(struct tdbus *bus)
 {
 	int r;
