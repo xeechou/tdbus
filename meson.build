@@ -5,7 +5,7 @@ project('tdbus', 'c',
 	  'c_std=gnu11',
 	  'werror=true'
 	],
-	license: 'GPLv2')
+	license: 'GPLv2.1+')
 
 # adding options
 cc = meson.get_compiler('c')
