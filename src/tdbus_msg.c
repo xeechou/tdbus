@@ -828,6 +828,42 @@ tdbus_send_message(struct tdbus *bus, struct tdbus_message *bus_msg)
 	}
 }
 
+TDBUS_EXPORT bool
+tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *bus_msg,
+                         struct tdbus_reply *reply)
+{
+	DBusMessage *reply_msg;
+	DBusError err;
+
+	if (dbus_message_get_type(bus_msg->message) !=
+	    DBUS_MESSAGE_TYPE_METHOD_RETURN)
+		return false;
+
+	bus_msg->bus = bus;
+	reply_msg = dbus_connection_send_with_reply_and_block(bus->conn,
+	                                                      bus_msg->message,
+	                                                      -1, &err);
+	dbus_message_unref(bus_msg->message);
+
+	if (!reply_msg) {
+		dbus_error_free(&err);
+		goto err_reply;
+	}
+	bus_msg->message = reply_msg;
+
+	if (reply) {
+		reply->bus = bus;
+		tdbus_reader_from_message(reply_msg, NULL, NULL, reply);
+		reply->message = bus_msg;
+	} else {
+		tdbus_free_message(bus_msg);
+	}
+	return true;
+err_reply:
+	tdbus_free_message(bus_msg);
+	return false;
+}
+
 TDBUS_EXPORT void
 tdbus_free_message(struct tdbus_message *bus_msg)
 {

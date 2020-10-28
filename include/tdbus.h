@@ -178,7 +178,7 @@ tdbus_write_with_itr(struct tdbus_message *msg, const char *format,
 
 /**
  * @brief generate a method call message for writing,
-
+ *
  * use tdbus_write to produce the content of the message
  */
 struct tdbus_message *
@@ -195,6 +195,16 @@ tdbus_reply_method(const struct tdbus_message *reply_to,
 
 void
 tdbus_send_message(struct tdbus *bus, struct tdbus_message *msg);
+
+/**
+ * @brief send message and wait for reply
+ *
+ * The message can only be a method call. The function returns false on erro
+ * occurs. It also resues the @param msg for the reply.
+ */
+bool
+tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *msg,
+                         struct tdbus_reply *reply);
 
 /**
  * @brief adding methods and register the object path
