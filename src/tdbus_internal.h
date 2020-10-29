@@ -65,6 +65,9 @@ struct tdbus_array {
 
 void tdbus_array_init(struct tdbus_array *array);
 
+void tdbus_array_init_fixed(struct tdbus_array *array,
+                            size_t alloc, void *data);
+
 void tdbus_array_release(struct tdbus_array *array);
 
 void *tdbus_array_add(struct tdbus_array *array, size_t size);
