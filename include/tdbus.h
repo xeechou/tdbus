@@ -136,18 +136,21 @@ tdbus_free_message(struct tdbus_message *message);
  * Currently @tdbus_readv and @tdbus_writev only supports basic types.
  *
  */
-void
+bool
 tdbus_readv(const struct tdbus_message *msg, const char *format,
             va_list ap);
 
-static inline void
+static inline bool
 tdbus_read(const struct tdbus_message *msg,
            const char *format, ...)
 {
 	va_list ap;
+	bool ret = true;
+
 	va_start(ap, format);
-	tdbus_readv(msg, format, ap);
+	ret = tdbus_readv(msg, format, ap);
 	va_end(ap);
+	return ret;
 }
 
 bool

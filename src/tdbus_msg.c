@@ -27,21 +27,71 @@
 #include <unistd.h>
 #include <assert.h>
 #include <dbus/dbus.h>
-#include <dbus/dbus-protocol.h>
 
 #include <tdbus.h>
+#include "tdbus_internal.h"
 #include "tdbus_msg_internal.h"
 #include "tdbus_message_iter.h"
 
-static void
-tdbus_msg_itr_done_arr(struct tdbus_message_arg *arg)
+void
+tdbus_msg_done_dict_entry(struct tdbus_arg_dict_entry *entry)
+{
+	tdbus_msg_done_arg(&entry->key);
+	tdbus_msg_done_arg(&entry->val);
+}
+
+static inline void
+tdbus_msg_done_arr(struct tdbus_message_arg *arg)
 {
 	char **strings = arg->arg.arr.a;
+	struct tdbus_arg_dict_entry *entries = arg->arg.arr.a;
+	struct tdbus_message_arg *objs = arg->arg.arr.a;
+	enum tdbus_arg_type elem_type = arg->arg.arr.type;
 
-	if (arg->arg.arr.type == TDBUS_ARG_STRING)
-		for (unsigned i = 0; i < arg->arg.arr.n; i++)
+	for (unsigned i = 0; i < arg->arg.arr.n; i++) {
+		if (tdbus_type_is_string(elem_type))
 			free(strings[i]);
+		else if (tdbus_type_is_dict_entry(elem_type))
+			tdbus_msg_done_dict_entry(entries+i);
+		else if (tdbus_type_is_object(elem_type))
+			tdbus_msg_done_arg(objs+i);
+	}
 	free(arg->arg.arr.a);
+}
+
+void
+tdbus_msg_done_variant(struct tdbus_message_arg *arg)
+{
+	struct tdbus_arg_variant *variant = &arg->arg.variant;
+	tdbus_msg_done_arg(variant->arg);
+	dbus_free(variant->arg);
+}
+
+void
+tdbus_msg_done_arg(struct tdbus_message_arg *arg)
+{
+	if (arg->type == TDBUS_ARG_STRUCT)
+		tdbus_msg_itr_done(arg->arg.st);
+	else if (arg->type == TDBUS_ARG_VARIANT)
+		tdbus_msg_done_variant(arg);
+	else if (arg->type == TDBUS_ARG_ARRAY)
+		tdbus_msg_done_arr(arg);
+	//this is impossible
+	else if (arg->type == TDBUS_ARG_DICT_ENTRY)
+		tdbus_msg_done_dict_entry(arg->arg.entry);
+	else if (arg->type == TDBUS_ARG_STRING ||
+	         arg->type == TDBUS_ARG_OBJPATH)
+		free(arg->arg.str);
+}
+
+/* for insurance, value should be allocated by dbus_malloc */
+void
+_tdbus_message_itr_init(struct _tdbus_message_itr *itr,
+                        struct tdbus_message_arg *value)
+{
+	itr->it.args = value;
+	itr->it.curr = 0;
+	tdbus_array_init_fixed(&itr->arr, sizeof(*value), value);
 }
 
 TDBUS_EXPORT struct tdbus_message_itr *
@@ -68,15 +118,9 @@ tdbus_msg_itr_done(struct tdbus_message_itr *itr)
 		tdbus_container_of(itr, struct _tdbus_message_itr, it);
 	struct tdbus_message_arg *arg;
 
-	tdbus_array_for_each(arg, &_itr->arr) {
-		if (arg->type == TDBUS_ARG_STRUCT)
-			tdbus_msg_itr_done(arg->arg.st);
-		else if (arg->type == TDBUS_ARG_ARRAY)
-			tdbus_msg_itr_done_arr(arg);
-		else if (arg->type == TDBUS_ARG_STRING ||
-		         arg->type == TDBUS_ARG_OBJPATH)
-			free(arg->arg.str);
-	}
+	tdbus_array_for_each(arg, &_itr->arr)
+		tdbus_msg_done_arg(arg);
+
 	tdbus_array_release(&_itr->arr);
 	free(_itr);
 }

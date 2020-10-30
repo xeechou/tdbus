@@ -19,6 +19,7 @@
  *
  */
 
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -27,11 +28,15 @@
 #include <unistd.h>
 #include <assert.h>
 #include <dbus/dbus.h>
-#include <dbus/dbus-protocol.h>
 
 #include <tdbus.h>
+#include "tdbus_internal.h"
 #include "tdbus_msg_internal.h"
 #include "tdbus_message_iter.h"
+
+static bool
+tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                     struct tdbus_message_itr *mitr);
 
 static inline struct tdbus_message_arg *
 _tdbus_msg_itr_write_next(struct tdbus_message_itr *itr)
@@ -66,32 +71,72 @@ tdbus_msg_itr_get_write_arr(struct tdbus_message_itr *itr, int *count,
 	}
 }
 
+static inline bool
+tdbus_write_single(DBusMessageIter *itr, struct tdbus_message_arg *arg,
+                   const char *signature)
+{
+	DBusSignatureIter sitr;
+	struct _tdbus_message_itr mitr;
+
+	dbus_signature_iter_init(&sitr, signature);
+	_tdbus_message_itr_init(&mitr, arg);
+	return tdbus_write_itr(&sitr, itr, &mitr.it);
+}
+
+static void
+tdbus_write_dict_entry(DBusMessageIter *itr, DBusSignatureIter *sitr,
+                       struct tdbus_arg_dict_entry *e)
+
+{
+	char *signature;
+	DBusMessageIter sub_itr;
+	DBusSignatureIter sub_sitr;
+	int key_type = tdbus_arg_type_to_dbus(e->key.type);
+
+	dbus_signature_iter_recurse(sitr, &sub_sitr);
+
+	dbus_message_iter_open_container(itr, DBUS_TYPE_DICT_ENTRY, NULL,
+	                                 &sub_itr);
+	//append key
+	dbus_message_iter_append_basic(&sub_itr, key_type, &e->key.arg);
+	//append value
+	dbus_signature_iter_next(&sub_sitr);
+	signature = dbus_signature_iter_get_signature(&sub_sitr);
+	tdbus_write_single(&sub_itr, &e->val, signature);
+	dbus_free(signature);
+
+	dbus_message_iter_close_container(itr, &sub_itr);
+
+
+}
+
 /******************************************************************************
  * tdbus_writer
  *****************************************************************************/
-bool tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
-                     struct tdbus_message_itr *mitr);
 
 static bool
 tdbus_write_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
                   struct tdbus_message_itr *mitr)
 {
-	int basic_type;
+	int dbus_type;
+	enum tdbus_arg_type type;
+
 	DBusMessageIter sub_itr;
-	DBusBasicValue value, *value_ptr = NULL;
-	char *sub_signature;
+	DBusSignatureIter sub_sitr;
+	DBusBasicValue *value_ptr = NULL;
+	char *signature;
 	int nelem = 0;
 
-	basic_type = dbus_signature_iter_get_element_type(sitr);
+	dbus_type = dbus_signature_iter_get_element_type(sitr);
+	type = tdbus_arg_type_from_dbus(dbus_type);
 
-	if (!dbus_type_is_basic(basic_type))
-		return false;
+	dbus_signature_iter_recurse(sitr, &sub_sitr);
+	signature = dbus_signature_iter_get_signature(&sub_sitr);
 
-	sub_signature = dbus_signature_iter_get_signature(sitr);
-
+	//getting the array from user
 	if (dbus_message_iter_open_container(itr, DBUS_TYPE_ARRAY,
-	                                     sub_signature+1, &sub_itr) != TRUE) {
-		dbus_free(sub_signature);
+	                                     signature, &sub_itr) != TRUE) {
+		dbus_free(signature);
 		return false;
 	}
 
@@ -99,18 +144,33 @@ tdbus_write_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
 	if (!nelem || !value_ptr)
 		return false;
 
-	if (dbus_type_is_fixed(basic_type))
-		dbus_message_iter_append_fixed_array(&sub_itr, basic_type,
+	//start writing the array
+	if (tdbus_type_is_fixed(type)) {
+		dbus_message_iter_append_fixed_array(&sub_itr, dbus_type,
 		                                     &value_ptr, nelem);
-	else {
-		for (int i = 0; i < nelem; i++) {
-			value.str = ((char **)value_ptr)[i];
-			dbus_message_iter_append_basic(&sub_itr, basic_type, &value);
-		}
+	} else {
+		char **strings = (char **)value_ptr;
+		struct tdbus_arg_dict_entry *e =
+			(struct tdbus_arg_dict_entry *)value_ptr;
+		struct tdbus_message_arg *objs =
+			(struct tdbus_message_arg *)value_ptr;
 
+		for (int i = 0; i < nelem; i++) {
+			if (tdbus_type_is_string(type))
+				dbus_message_iter_append_basic(&sub_itr,
+				                               dbus_type,
+				                               strings[i]);
+			else if (tdbus_type_is_dict_entry(type))
+				tdbus_write_dict_entry(&sub_itr, &sub_sitr,
+				                       e+i);
+			else if (tdbus_type_is_object(type))
+				tdbus_write_single(&sub_itr, objs+i,
+				                   signature);
+		}
 	}
+
 	dbus_message_iter_close_container(itr, &sub_itr);
-	dbus_free(sub_signature);
+	dbus_free(signature);
 
 	return true;
 }
@@ -212,7 +272,26 @@ tdbus_write_basic(DBusSignatureIter *sitr, DBusMessageIter *itr,
 	return true;
 }
 
-bool
+static bool
+tdbus_write_variant(DBusSignatureIter *sitr, DBusMessageIter *itr,
+                    struct tdbus_message_itr *mitr)
+{
+	int ret = true;
+	DBusMessageIter sub_itr;
+	struct tdbus_message_arg arg =
+		tdbus_msg_itr_write_next(mitr, struct tdbus_message_arg);
+	struct tdbus_arg_variant *var = &arg.arg.variant;
+
+	if (dbus_message_iter_open_container(itr, DBUS_TYPE_VARIANT,
+	                                     var->signature, &sub_itr) != TRUE)
+		return false;
+	ret = tdbus_write_single(&sub_itr, var->arg, var->signature);
+
+	dbus_message_iter_close_container(itr, &sub_itr);
+	return ret;
+}
+
+static bool
 tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
                 struct tdbus_message_itr *mitr)
 {
@@ -231,6 +310,9 @@ tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 				return false;
 		} else if (dbus_type_is_basic(t)) {
 			if (!tdbus_write_basic(sitr, itr, mitr))
+				return false;
+		} else if (t == DBUS_TYPE_VARIANT) {
+			if (!tdbus_write_variant(sitr, itr, mitr))
 				return false;
 		} else
 			return false;
