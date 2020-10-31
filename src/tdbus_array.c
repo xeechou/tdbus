@@ -31,6 +31,15 @@ tdbus_array_init(struct tdbus_array *array)
 }
 
 void
+tdbus_array_init_fixed(struct tdbus_array *array,
+                       size_t alloc, void *data)
+{
+	array->alloc = alloc;
+	array->size = 0;
+	array->data = data;
+}
+
+void
 tdbus_array_release(struct tdbus_array *array)
 {
 	if (array->data)
@@ -47,7 +56,7 @@ tdbus_array_add(struct tdbus_array *array, size_t size)
 	size_t alloc;
 	void *data, *p;
 
-
+	//here we make sure alloc is always no less than array->alloc
 	if (array->alloc > 0)
 		alloc = array->alloc;
 	else
@@ -57,8 +66,10 @@ tdbus_array_add(struct tdbus_array *array, size_t size)
 
 	if (!array->data)
 		data = dbus_malloc(alloc);
-	else
+	else if (alloc > array->alloc)
 		data = dbus_realloc(array->data, alloc);
+	else
+		data = array->data;
 	if (!data)
 		return NULL;
 

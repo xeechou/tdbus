@@ -33,17 +33,7 @@
 
 #include <tdbus.h>
 #include "tdbus_internal.h"
-
-struct tdbus_timeout_record {
-	int timerfd;
-	DBusTimeout *timeout;
-};
-
-static void tdbus_dispatch_timeout(void *data, int fd, DBusTimeout *timeout,
-                                   struct tdbus *bus);
-
-static int tdbus_find_timeout_fd(struct tdbus *bus, DBusTimeout *timeout);
-
+#include "tdbus_watcher.h"
 
 static void
 tdbus_toggle_watch(DBusWatch *watch, void *data)
@@ -105,133 +95,20 @@ tdbus_remove_watch(DBusWatch *watch, void *data)
 	bus->rm_watch_cb(bus->watch_userdata, fd, bus, watch);
 }
 
-TDBUS_EXPORT void
-tdbus_handle_watch(struct tdbus *bus, void *data)
-{
-	DBusTimeout *timeout = data;
-	DBusWatch *watch = data;
-	int timerfd = tdbus_find_timeout_fd(bus, timeout);
-
-	if (timerfd > 0)
-		tdbus_dispatch_timeout(data, timerfd, timeout, bus);
-	else if (dbus_watch_get_enabled(watch))
-		dbus_watch_handle(watch,
-		                  dbus_watch_get_flags(watch));
-}
-
-/*******************************************************************************
- * dbus timeouts
- ******************************************************************************/
-void
-tdbus_release_timeouts(struct tdbus *bus)
-{
-	struct tdbus_timeout_record *rec;
-	void *userdata;
-
-	if (bus->rm_watch_cb) {
-		tdbus_array_for_each(rec, &bus->added_timeouts) {
-			if (rec->timerfd > 0 && rec->timeout) {
-				userdata = dbus_timeout_get_data(rec->timeout);
-				bus->rm_watch_cb(userdata, rec->timerfd, bus,
-				                 rec->timeout);
-			}
-		}
-	}
-
-	tdbus_array_release(&bus->added_timeouts);
-}
-
-static bool
-tdbus_add_timeout_record(struct tdbus *bus, int timerfd, DBusTimeout *timeout)
-{
-	struct tdbus_timeout_record record, *copy;
-
-	record.timeout = timeout;
-	record.timerfd = timerfd;
-
-	// search if there is any empty slots
-	tdbus_array_for_each(copy, &bus->added_timeouts) {
-		if (!copy->timeout || copy->timerfd < 0) { //emtpy
-			copy->timeout = timeout;
-			copy->timerfd = timerfd;
-			return true;
-		}
-	}
-
-	copy = tdbus_array_add(&bus->added_timeouts, sizeof(record));
-	if (!copy)
-		return false;
-	*copy = record;
-
-	return true;
-}
-
-static int
-tdbus_find_timeout_fd(struct tdbus *bus, DBusTimeout *timeout)
-{
-	struct tdbus_timeout_record *rec;
-
-	tdbus_array_for_each(rec, &bus->added_timeouts) {
-		if (rec->timeout == timeout)
-			return rec->timerfd;
-	}
-
-	return -1;
-}
-
-static void
-tdbus_rm_timeout_record(struct tdbus *bus, int timerfd)
-{
-	struct tdbus_timeout_record *rec;
-
-	tdbus_array_for_each(rec, &bus->added_timeouts) {
-		if (rec->timerfd == timerfd) {
-			rec->timerfd = -1;
-			rec->timeout = NULL;
-		}
-	}
-}
-
 static dbus_bool_t
 tdbus_add_timeout(DBusTimeout *timeout, void *data)
 {
+	//the mask is always readable.
 	struct tdbus *bus = data;
-	int64_t interval;
-	int fd;
-	struct itimerspec timespec = {
-		{0,0},
-		{0,0},
-	};
+	int interval = dbus_timeout_get_interval(timeout);
+	bool enabled = dbus_timeout_get_enabled(timeout) == TRUE;
 
-	if (!bus->add_watch_cb)
-		goto err_init_timer;
-	//otherwise, create a timerfd to watch
-	fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
-	if (!fd)
-		goto err_init_timer;
-	if (timerfd_settime(fd, 0, &timespec, NULL))
-		goto err_settime;
-
-	if (dbus_timeout_get_enabled(timeout)) {
-		interval = dbus_timeout_get_interval(timeout);
-		timespec.it_value.tv_nsec = interval * 1000;
-		timespec.it_value.tv_sec = 0;
-		timespec.it_interval = timespec.it_value;
-
-		if (timerfd_settime(fd, 0, &timespec, NULL))
-			goto err_settime;
-	}
-
-	bus->add_watch_cb(bus->watch_userdata, fd, bus,
-	                  TDBUS_READABLE, timeout);
-	tdbus_add_timeout_record(bus, fd, timeout);
-	dbus_timeout_set_data(timeout, bus->watch_userdata, NULL);
+	if (!bus->add_timeout_cb)
+		return FALSE;
+	bus->add_timeout_cb(bus->watch_userdata, interval, enabled,
+	                    bus, timeout);
 
 	return TRUE;
-err_settime:
-	close(fd);
-err_init_timer:
-	return FALSE;
 }
 
 static void
@@ -239,48 +116,21 @@ tdbus_remove_timeout(DBusTimeout *timeout, void *data)
 {
 	struct tdbus *bus = data;
 	void *userdata = dbus_timeout_get_data(timeout);
-	int timerfd = tdbus_find_timeout_fd(bus, timeout);
 
-	if (!bus->rm_watch_cb)
+	if (!bus->rm_timeout_cb)
 		return;
-
-	bus->rm_watch_cb(userdata, timerfd, bus, timeout);
-	tdbus_rm_timeout_record(bus, timerfd);
+	bus->rm_timeout_cb(userdata, bus, timeout);
 }
 
 static void
 tdbus_toggle_timeout(DBusTimeout *timeout, void *data)
 {
 	struct tdbus *bus = data;
-	int timerfd = tdbus_find_timeout_fd(bus, timeout);
+	void *userdata = dbus_timeout_get_data(timeout);
+	int interval = dbus_timeout_get_interval(timeout);
 
-	if (dbus_timeout_get_enabled(timeout)) {
-		int64_t interval = dbus_timeout_get_interval(timeout);
-		struct itimerspec timespec = {
-			.it_value = {
-				.tv_sec = 0,
-				.tv_nsec = interval * 1000,
-			},
-			.it_interval = {
-				.tv_sec = 0,
-				.tv_nsec = interval * 1000,
-			},
-		};
-		timerfd_settime(timerfd, 0, &timespec, NULL);
-	}
-
-}
-
-static void
-tdbus_dispatch_timeout(void *data, int timerfd, DBusTimeout *timeout,
-                       struct tdbus *bus)
-{
-	uint64_t nhit;
-	//read the timer first
-	read(timerfd, &nhit, 8);
-	//find the timer based on fd
-	if (timeout && dbus_timeout_get_enabled(timeout))
-		dbus_timeout_handle(timeout);
+	if (dbus_timeout_get_enabled(timeout))
+		bus->ch_timeout_cb(userdata, interval, bus, timeout);
 }
 
 TDBUS_EXPORT void
@@ -296,16 +146,99 @@ tdbus_watch_get_user_data(void *watch_data)
 }
 
 TDBUS_EXPORT void
+tdbus_timeout_set_user_data(void *timeout_data, void *user_data)
+{
+	dbus_timeout_set_data(timeout_data, user_data, NULL);
+}
+
+TDBUS_EXPORT void *
+tdbus_timeout_get_user_data(void *timeout_data)
+{
+	return dbus_timeout_get_data(timeout_data);
+}
+
+TDBUS_EXPORT int
+tdbus_timeout_gen_timerfd(void *timeout)
+{
+	int fd;
+	int64_t interval;
+	struct itimerspec timespec = {
+		{0,0},
+		{0,0},
+	};
+
+	//otherwise, create a timerfd to watch
+	fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+	if (!fd)
+		return -1;
+	//initially disalarm the timer
+	if (timerfd_settime(fd, 0, &timespec, NULL))
+		goto err_settime;
+	if (dbus_timeout_get_enabled(timeout)) {
+		interval = dbus_timeout_get_interval(timeout);
+		timespec.it_value.tv_nsec = interval * 1000;
+		timespec.it_value.tv_sec = 0;
+		timespec.it_interval = timespec.it_value;
+
+		if (timerfd_settime(fd, 0, &timespec, NULL))
+			goto err_settime;
+	}
+	return fd;
+err_settime:
+	close(fd);
+	return -1;
+}
+
+TDBUS_EXPORT void
+tdbus_timeout_reset_timer(void *timeout, int timerfd)
+{
+	int64_t interval = dbus_timeout_get_interval(timeout);
+	struct itimerspec timespec = {
+		.it_value = {
+			.tv_sec = 0,
+			.tv_nsec = interval * 1000,
+		},
+		.it_interval = {
+			.tv_sec = 0,
+			.tv_nsec = interval * 1000,
+		},
+	};
+	timerfd_settime(timerfd, 0, &timespec, NULL);
+}
+
+TDBUS_EXPORT void
+tdbus_handle_timeout(void *timeout_data)
+{
+	if (dbus_timeout_get_enabled(timeout_data))
+		dbus_timeout_handle(timeout_data);
+}
+
+TDBUS_EXPORT void
+tdbus_handle_watch(void *data)
+{
+	DBusWatch *watch = data;
+
+	 if (dbus_watch_get_enabled(watch))
+		 dbus_watch_handle(watch, dbus_watch_get_flags(watch));
+}
+
+TDBUS_EXPORT void
 tdbus_set_nonblock(struct tdbus *bus, void *data,
                    tdbus_add_watch_f addf,
                    tdbus_ch_watch_f chf,
-                   tdbus_rm_watch_f rmf)
+                   tdbus_rm_watch_f rmf,
+                   tdbus_add_timeout_f addt,
+                   tdbus_ch_timeout_f cht,
+                   tdbus_rm_timeout_f rmt)
 {
 	dbus_bool_t r;
 
 	bus->add_watch_cb = addf;
 	bus->ch_watch_cb = chf;
 	bus->rm_watch_cb = rmf;
+	bus->add_timeout_cb = addt;
+	bus->ch_timeout_cb = cht;
+	bus->rm_timeout_cb = rmt;
 	bus->non_block = true;
 	bus->watch_userdata = data;
 
@@ -335,6 +268,9 @@ err_set_func:
 	bus->add_watch_cb = NULL;
 	bus->ch_watch_cb = NULL;
 	bus->rm_watch_cb = NULL;
+	bus->add_timeout_cb = NULL;
+	bus->ch_timeout_cb = NULL;
+	bus->rm_timeout_cb = NULL;
 	bus->non_block = false;
 	bus->watch_userdata = NULL;
 }

@@ -7,75 +7,157 @@
 #include <assert.h>
 
 #include <tdbus.h>
+#include <tdbus_message_iter.h>
 
-static bool quit = false;
-
-
-static int read_listNames(const struct tdbus_reply *reply)
+static bool test_variant(struct tdbus *bus)
 {
-	const char *bus_name = reply->sender;
-	const char *interface = reply->interface;
-	const char *err = reply->error_name;
-	const char *signature = reply->signature;
-	char **str_arr; int count;
-	(void)(bus_name);
-	(void)(interface);
-	(void)(err);
+	struct tdbus_message_arg data = {
+		.type = TDBUS_ARG_DOUBLE,
+		.arg.d = 9.999,
+	};
+	struct tdbus_message_arg variant = {
+		.type = TDBUS_ARG_VARIANT,
+		.arg.variant.signature = "d",
+		.arg.variant.arg = &data,
+	};
+	struct tdbus_message *msg = tdbus_call_method(
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", NULL, NULL);
 
-	if (strcmp(signature, "as"))
-		perror("signature not correct!\n");
-	else {
-		tdbus_read(reply->message, "as", &count, &str_arr);
+	if (!tdbus_write(msg, "ybdv", 'a', true, 10.0, variant))
+		return false;
 
-		for (int i = 0; i < count; i++) {
-			printf("%s\n", str_arr[i]);
-			free(str_arr[i]);
-		}
-		free(str_arr);
-	}
+	struct tdbus_message_arg vread = {0};
+	double d; bool tf; char c;
 
-	quit = true;
-	return 0;
+	tdbus_read(msg, "ybdv", &c, &tf, &d, &vread);
+
+	tdbus_msg_done_variant(&vread);
+
+	tdbus_free_message(msg);
+	return true;
+}
+
+static bool test_basic(struct tdbus *bus)
+{
+	char b, *string = NULL;
+	int ia, ib;
+	struct tdbus_message *msg = tdbus_call_method(
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", NULL, NULL);
+
+	tdbus_write(msg, "ysii", 18, "hello world", 12829099, 1283222);
+	tdbus_read(msg, "ysii", &b, &string, &ia, &ib);
+
+	bool ret = b == 18 && (strcmp(string, "hello world") == 0) &&
+		ia == 12829099 && ib == 1283222;
+	free(string);
+	tdbus_free_message(msg);
+	return ret;
+}
+
+static bool test_array_basic(struct tdbus *bus)
+{
+	double doubles[4] = { 1.0f, 2.0f, 3.0f, 4.0f };
+	double *wdoubles = NULL;
+	int wi, n;
+	char ca, cb;
+
+	struct tdbus_message *msg2 = tdbus_call_method(
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", NULL, NULL);
+	tdbus_write(msg2, "iad(y)y", 18, 4, doubles, 32, 35);
+	if (!tdbus_read(msg2, "iad(y)y", &wi, &n, &wdoubles, &ca, &cb))
+		return false;
+
+	bool ret = wi == 18 && n == 4 &&
+		wdoubles[0] == 1.0f && wdoubles[1] == 2.0f &&
+		wdoubles[2] == 3.0f && wdoubles[3] == 4.0f &&
+		ca == 32 && cb == 35;
+	free(wdoubles);
+	tdbus_free_message(msg2);
+
+	return ret;
+}
+
+static bool
+test_array_complex(struct tdbus *bus)
+{
+	int n;
+	struct tdbus_message_arg vdata[4] = {
+		{.type = TDBUS_ARG_DOUBLE, .arg.d = 9.99,},
+		{.type = TDBUS_ARG_INT32, .arg.i32 = 10},
+		{.type = TDBUS_ARG_STRING, .arg.str = "hello"},
+		{.type = TDBUS_ARG_UINT64, .arg.u64 = 69533},
+	};
+	struct tdbus_arg_dict_entry entries[4] = {
+		{
+			.key = {.type = TDBUS_ARG_STRING, .arg.str="e0"},
+			.val = {
+				.type = TDBUS_ARG_VARIANT,
+				.arg.variant.signature = "d",
+				.arg.variant.arg = &vdata[0],
+			},
+		},
+		{
+			.key = {.type = TDBUS_ARG_STRING, .arg.str="e1"},
+			.val = {
+				.type = TDBUS_ARG_VARIANT,
+				.arg.variant.signature = "i",
+				.arg.variant.arg = &vdata[1],
+			},
+		},
+		{
+			.key = {.type = TDBUS_ARG_STRING, .arg.str="e2"},
+			.val = {
+				.type = TDBUS_ARG_VARIANT,
+				.arg.variant.signature = "s",
+				.arg.variant.arg = &vdata[2],
+			},
+		},
+		{
+			.key = {.type = TDBUS_ARG_STRING, .arg.str="e3"},
+			.val = {
+				.type = TDBUS_ARG_VARIANT,
+				.arg.variant.signature = "t",
+				.arg.variant.arg = &vdata[3],
+			},
+		},
+	}, *wentries;
+	struct tdbus_message *msg2 = tdbus_call_method(
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", NULL, NULL);
+	if (!tdbus_write(msg2, "a{sv}", 4, entries))
+		return false;
+	if (!tdbus_read(msg2, "a{sv}", &n, &wentries))
+		return false;
+	bool ret = n == 4 && wentries[0].val.type == TDBUS_ARG_VARIANT &&
+		wentries[1].val.type == TDBUS_ARG_VARIANT &&
+		wentries[2].val.type == TDBUS_ARG_VARIANT &&
+		wentries[3].val.type == TDBUS_ARG_VARIANT;
+
+	for (int i = 0; i < 4; i++)
+		tdbus_msg_done_dict_entry(&wentries[i]);
+	free(wentries);
+
+	tdbus_free_message(msg2);
+
+	return ret;
 }
 
 int main()
 {
 	struct tdbus *bus = tdbus_new(SYSTEM_BUS);
 
-	struct tdbus_message *msg1 = tdbus_call_method(
-		"org.freedesktop.DBus", "/org/freedesktop/DBus",
-		"org.freedesktop.DBus", "ListNames", NULL, NULL);
-
-	tdbus_write(msg1, "ysii", 18, "hello world", 12829099, 1283222);
-
-	double doubles[4] = { 1.0f, 2.0f, 3.0f, 4.0f };
-	struct tdbus_message *msg2 = tdbus_call_method(
-		"org.freedesktop.DBus", "/org/freedesktop/DBus",
-		"org.freedesktop.DBus", "ListNames", NULL, NULL);
-	tdbus_write(msg2, "iad(y)y", 18, 4, doubles, 32, 35);
-
-	//this would not work
-	struct tdbus_message *msg3 = tdbus_call_method(
-		"org.freedesktop.DBus", "/org/freedesktop/DBus",
-		"org.freedesktop.DBus", "ListNames", read_listNames, NULL);
-
-	double *ptr_doubles = NULL; int a, count; char c;
-	//okay, now we read some message
-	tdbus_read(msg2, "iad(y)y", &a, &count, &ptr_doubles, &c, &c);
-
-	struct tdbus_message_itr *msg_itr = tdbus_msg_itr_new();
-
-	tdbus_read_with_iter(msg2, "iad(y)y", msg_itr);
-	tdbus_msg_itr_done(msg_itr);
-
-
-	if (ptr_doubles)
-		free(ptr_doubles);
-
-	tdbus_free_message(msg1);
-	tdbus_free_message(msg2);
-
-	tdbus_send_message(bus, msg3);
+	if (!test_variant(bus))
+		return -1;
+	if (!test_basic(bus))
+		return -1;
+	if (!test_array_basic(bus))
+		return -1;
+	if (!test_array_complex(bus))
+		return -1;
 
 	tdbus_delete(bus);
+
 }
