@@ -84,6 +84,21 @@ tdbus_msg_done_arg(struct tdbus_message_arg *arg)
 		free(arg->arg.str);
 }
 
+void
+tdbus_msg_free_array(void *array, unsigned count, enum tdbus_arg_type type)
+{
+	struct tdbus_message_arg arg = {
+		.type = TDBUS_ARG_ARRAY,
+		.arg.arr.a = array,
+		.arg.arr.n = count,
+		.arg.arr.type = type,
+	};
+	if (!array)
+		return;
+
+	tdbus_msg_done_arr(&arg);
+}
+
 /* for insurance, value should be allocated by dbus_malloc */
 void
 _tdbus_message_itr_init(struct _tdbus_message_itr *itr,

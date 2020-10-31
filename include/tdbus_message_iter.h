@@ -36,24 +36,24 @@ union tdbus_arg_value;
 struct tdbus_message_arg;
 
 enum tdbus_arg_type {
-  TDBUS_ARG_BYTE,
-  TDBUS_ARG_BOOLEAN,
-  TDBUS_ARG_STRING,
-  TDBUS_ARG_OBJPATH,
-  TDBUS_ARG_SIG,
-  TDBUS_ARG_FD,
-  TDBUS_ARG_INT16,
-  TDBUS_ARG_INT32,
-  TDBUS_ARG_INT64,
-  TDBUS_ARG_UINT16,
-  TDBUS_ARG_UINT32,
-  TDBUS_ARG_UINT64,
-  TDBUS_ARG_DOUBLE,
-  TDBUS_ARG_ARRAY,
-  TDBUS_ARG_STRUCT,
-  TDBUS_ARG_VARIANT,
-  TDBUS_ARG_DICT_ENTRY, //dict entry can only be
-  TDBUS_ARG_UNKNOWN,
+	TDBUS_ARG_BYTE,
+	TDBUS_ARG_BOOLEAN,
+	TDBUS_ARG_STRING,
+	TDBUS_ARG_OBJPATH,
+	TDBUS_ARG_SIG,
+	TDBUS_ARG_FD,
+	TDBUS_ARG_INT16,
+	TDBUS_ARG_INT32,
+	TDBUS_ARG_INT64,
+	TDBUS_ARG_UINT16,
+	TDBUS_ARG_UINT32,
+	TDBUS_ARG_UINT64,
+	TDBUS_ARG_DOUBLE,
+	TDBUS_ARG_ARRAY,
+	TDBUS_ARG_STRUCT,
+	TDBUS_ARG_VARIANT,
+	TDBUS_ARG_DICT_ENTRY, //dict entry can only be
+	TDBUS_ARG_UNKNOWN,
 };
 
 struct tdbus_arg_variant {
@@ -113,10 +113,16 @@ void
 tdbus_msg_done_arg(struct tdbus_message_arg *arg);
 
 /** free the variant (allocated from reading) resource */
-void tdbus_msg_done_variant(struct tdbus_message_arg *variant);
+void
+tdbus_msg_done_variant(struct tdbus_message_arg *variant);
 
 void
 tdbus_msg_done_dict_entry(struct tdbus_arg_dict_entry *entry);
+
+/** convenience function for deallocate array at once, behavior undefined if
+ * wrong type is provided */
+void
+tdbus_msg_free_array(void *array, unsigned count, enum tdbus_arg_type type);
 
 #ifdef __cplusplus
 }
