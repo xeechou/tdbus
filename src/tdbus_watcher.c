@@ -35,17 +35,6 @@
 #include "tdbus_internal.h"
 #include "tdbus_watcher.h"
 
-struct tdbus_timeout_record {
-	int timerfd;
-	DBusTimeout *timeout;
-};
-
-struct tdbus_watch {
-	struct DBusWatch *watch;
-	struct DBusTimeout *timeout;
-	struct tdbus *bus;
-};
-
 static void
 tdbus_toggle_watch(DBusWatch *watch, void *data)
 {
@@ -74,7 +63,6 @@ tdbus_add_watch(DBusWatch *watch, void *data)
 	struct tdbus *bus = data;
 	int fd;
 	uint32_t mask = 0, flags;
-	struct tdbus_watch *w = dbus_malloc(sizeof(*w));
 
 	//there is nothing we can do here
 	if (!bus->add_watch_cb)
