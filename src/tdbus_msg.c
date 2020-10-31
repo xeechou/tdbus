@@ -267,18 +267,16 @@ tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *bus_msg,
                          struct tdbus_reply *reply)
 {
 	DBusMessage *reply_msg;
-	DBusError err;
 
 	if (dbus_message_get_type(bus_msg->message) !=
-	    DBUS_MESSAGE_TYPE_METHOD_RETURN)
+	    DBUS_MESSAGE_TYPE_METHOD_CALL)
 		return false;
 
 	bus_msg->bus = bus;
 	reply_msg = dbus_connection_send_with_reply_and_block(bus->conn,
 	                                                      bus_msg->message,
-	                                                      -1, &err);
+	                                                      -1, NULL);
 	if (!reply_msg) {
-		dbus_error_free(&err);
 		goto err_reply;
 	}
 	dbus_message_unref(bus_msg->message);
