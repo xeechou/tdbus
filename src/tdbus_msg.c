@@ -277,12 +277,11 @@ tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *bus_msg,
 	reply_msg = dbus_connection_send_with_reply_and_block(bus->conn,
 	                                                      bus_msg->message,
 	                                                      -1, &err);
-	dbus_message_unref(bus_msg->message);
-
 	if (!reply_msg) {
 		dbus_error_free(&err);
 		goto err_reply;
 	}
+	dbus_message_unref(bus_msg->message);
 	bus_msg->message = reply_msg;
 
 	if (reply) {
