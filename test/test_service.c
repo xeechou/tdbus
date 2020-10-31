@@ -10,6 +10,8 @@
 #include <sys/types.h>
 
 static int epoll_fd = -1;
+static int TIMERFD_COUNT = 0;
+static struct tfd_data {int fd; void *data;} TIMERFDS[1024] = {0};
 
 static char *const exec_argv[] = {
 	"--session",
@@ -35,9 +37,9 @@ fork_exec()
 	}
 }
 
-/*******************************************************************************
+/******************************************************************************
  * watchers
- ******************************************************************************/
+ *****************************************************************************/
 
 static void add_watch(void *user_data, int fd, struct tdbus *bus,
                       uint32_t mask, void *watch_data)
@@ -91,6 +93,72 @@ static void remove_watch(void *user_data, int fd, struct tdbus *bus,
 	epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, NULL);
 }
 
+static void add_timeout(void *user_data, int interval, bool enabled,
+                        struct tdbus *bus, void *timeout)
+{
+	int timerfd;
+	int epoll_mask = EPOLLIN;
+	struct epoll_event ev;
+	intptr_t ptr;
+
+	if (epoll_fd <= 0)
+		return;
+	if (enabled) {
+		timerfd = tdbus_timeout_gen_timerfd(timeout);
+		if (timerfd < 0)
+			return;
+		ptr = timerfd;
+		tdbus_timeout_set_user_data(timeout, (void *)ptr);
+
+		ev.data.ptr = timeout;
+		ev.events = epoll_mask;
+		epoll_ctl(epoll_fd, EPOLL_CTL_ADD, timerfd, &ev);
+		TIMERFDS[TIMERFD_COUNT++] =
+			(struct tfd_data){ timerfd, timeout};
+
+	}
+}
+
+static void change_timeout(void *user_data, int interval, struct tdbus *bus,
+                           void *timeout)
+{
+	struct epoll_event ev;
+	int epoll_mask = EPOLLIN;
+	intptr_t ptr = (intptr_t)tdbus_timeout_get_user_data(timeout);
+	int timerfd = ptr;
+
+	if (epoll_fd <= 0 || timerfd < 0)
+		return;
+	tdbus_timeout_reset_timer(timeout, timerfd);
+
+	ev.data.ptr = timeout;
+	ev.events = epoll_mask;
+
+	epoll_ctl(epoll_fd, EPOLL_CTL_MOD, timerfd, &ev);
+}
+
+static void close_timeout(void *user_data, struct tdbus *bus, void *timeout)
+{
+	intptr_t ptr = (intptr_t)tdbus_timeout_get_user_data(timeout);
+	int timerfd = ptr;
+
+	if (epoll_fd < 0 || timerfd < 0)
+		return;
+	epoll_ctl(epoll_fd, EPOLL_CTL_DEL, timerfd, NULL);
+	close(timerfd);
+}
+
+static int istimerfd(void *data)
+{
+	for (int i = 0; i < TIMERFD_COUNT; i++) {
+		if (TIMERFDS[i].data == data)
+			return TIMERFDS[i].fd;
+	}
+	return -1;
+}
+
+/*****************************************************************************/
+
 static int read_method(const struct tdbus_method_call *call)
 {
 	return 0;
@@ -102,7 +170,7 @@ int main(int argc, char *argv[])
 	struct tdbus *bus;
 	void *watch_data;
 	int count = 0, status = 0, pid, succeed = 0;
-
+	int fd;
 
 	struct tdbus_call_answer answer = {
 		.interface = "org.tdbus.example",
@@ -122,8 +190,9 @@ int main(int argc, char *argv[])
 
 	epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 	bus = tdbus_new_server(SESSION_BUS, "org.tdbus");
-	tdbus_set_nonblock(bus, NULL,
-	                   add_watch, change_watch, remove_watch);
+	tdbus_set_nonblock(bus, NULL, add_watch, change_watch, remove_watch,
+	                   add_timeout, change_timeout, close_timeout);
+
 	tdbus_server_add_methods(bus, "/org/tdbus", 1, &answer);
 	tdbus_server_add_methods(bus, "/org/tdbus1", 1, &answer1);
 
@@ -137,7 +206,13 @@ int main(int argc, char *argv[])
 			break;
 		for (int i = 0; i < count; i++) {
 			watch_data = events[i].data.ptr;
-			tdbus_handle_watch(bus, watch_data);
+			if ((fd = istimerfd(watch_data)) >= 0) {
+				uint64_t nhit;
+				read(fd, &nhit, 8);
+				tdbus_handle_timeout(watch_data);
+			} else {
+				tdbus_handle_watch(watch_data);
+			}
 		}
 		while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
 			if (!WIFEXITED(status))

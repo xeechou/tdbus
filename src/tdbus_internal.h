@@ -22,6 +22,7 @@
 #ifndef TDBUS_INTERNAL_H
 #define TDBUS_INTERNAL_H
 
+#include "tdbus_watcher.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <dbus/dbus.h>
@@ -52,7 +53,6 @@ struct tdbus_message {
 	tdbus_read_reply_f read_reply;
 	void *user_data;
 };
-
 
 struct tdbus_array {
 	/** Array size */
@@ -89,7 +89,11 @@ struct tdbus {
 	tdbus_ch_watch_f ch_watch_cb;
 	void *watch_userdata;
 
-	struct tdbus_array added_timeouts;
+	/* timeouts */
+	tdbus_add_timeout_f add_timeout_cb;
+	tdbus_ch_timeout_f ch_timeout_cb;
+	tdbus_rm_timeout_f rm_timeout_cb;
+
 	struct tdbus_array matched_signals;
 
 
@@ -104,12 +108,7 @@ struct tdbus {
 	struct tdbus_array added_methods;
 };
 
-bool tdbus_init_timeouts(struct tdbus *bus);
-
-void tdbus_release_timeouts(struct tdbus *bus);
-
 void tdbus_release_methods(struct tdbus *bus);
-
 
 void tdbus_reader_from_message(DBusMessage *message,
                                struct tdbus_signal *signal,

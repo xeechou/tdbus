@@ -113,7 +113,6 @@ tdbus_new(enum TDBUS_TYPE type)
 	bus->non_block = false;
 	bus->n_objs = 0;
 	tdbus_array_init(&bus->matched_signals);
-	tdbus_array_init(&bus->added_timeouts);
 	tdbus_array_init(&bus->added_methods);
 
 	dbus_connection_add_filter(bus->conn, tdbus_handle_messages,
@@ -137,7 +136,6 @@ tdbus_delete(struct tdbus *bus)
 	free(bus->service_name);
 
 	tdbus_unmatch_signals(bus);
-	tdbus_release_timeouts(bus);
 	tdbus_release_methods(bus);
 
 	dbus_connection_flush(bus->conn);
