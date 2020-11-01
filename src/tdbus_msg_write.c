@@ -30,10 +30,12 @@
 #include <dbus/dbus.h>
 
 #include <tdbus.h>
+#include "dbus/dbus-protocol.h"
 #include "tdbus_internal.h"
 #include "tdbus_msg_internal.h"
 #include "tdbus_message_iter.h"
 
+/** the signature iter need to be validated */
 static bool
 tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
                      struct tdbus_message_itr *mitr);
@@ -78,6 +80,8 @@ tdbus_write_single(DBusMessageIter *itr, struct tdbus_message_arg *arg,
 	DBusSignatureIter sitr;
 	struct _tdbus_message_itr mitr;
 
+	if (!dbus_signature_validate_single(signature, NULL))
+		return false;
 	dbus_signature_iter_init(&sitr, signature);
 	_tdbus_message_itr_init(&mitr, arg);
 	return tdbus_write_itr(&sitr, itr, &mitr.it);
@@ -295,10 +299,10 @@ static bool
 tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
                 struct tdbus_message_itr *mitr)
 {
-	int t, advance;
+	int t, advance = 0;
 
-	do {
-		t = dbus_signature_iter_get_current_type(sitr);
+	while ((t = dbus_signature_iter_get_current_type(sitr)) !=
+	       DBUS_TYPE_INVALID) {
 
 		//we support only simple array for now
 		if (t == DBUS_TYPE_ARRAY) {
@@ -318,10 +322,8 @@ tdbus_write_itr(DBusSignatureIter *sitr, DBusMessageIter *itr,
 			return false;
 
 		advance = dbus_signature_iter_next(sitr);
-
-	} while (advance);
-
-	return true;
+	}
+	return t == DBUS_TYPE_INVALID && advance == 0;
 }
 
 TDBUS_EXPORT bool

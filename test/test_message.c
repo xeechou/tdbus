@@ -1,3 +1,4 @@
+#include "tdbus_message.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +31,8 @@ static bool test_variant(struct tdbus *bus)
 	struct tdbus_message_arg vread = {0};
 	double d; bool tf; char c;
 
-	tdbus_read(msg, "ybdv", &c, &tf, &d, &vread);
+	if (!tdbus_read(msg, "ybdv", &c, &tf, &d, &vread))
+		return false;
 
 	tdbus_msg_done_variant(&vread);
 
@@ -145,6 +147,20 @@ test_array_complex(struct tdbus *bus)
 	return ret;
 }
 
+static bool
+test_empty(struct tdbus *bus)
+{
+	struct tdbus_message *msg2 = tdbus_call_method(
+		"org.freedesktop.DBus", "/org/freedesktop/DBus",
+		"org.freedesktop.DBus", "ListNames", NULL, NULL);
+	if (!tdbus_write(msg2, ""))
+		return false;
+	if (!tdbus_read(msg2, ""))
+		return false;
+	tdbus_free_message(msg2);
+	return true;
+}
+
 int main()
 {
 	struct tdbus *bus = tdbus_new(SYSTEM_BUS);
@@ -157,6 +173,9 @@ int main()
 		return -1;
 	if (!test_array_complex(bus))
 		return -1;
+	if (!test_empty(bus))
+		return -1;
+
 
 	tdbus_delete(bus);
 
