@@ -306,7 +306,7 @@ tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *bus_msg,
 	}
 	return true;
 err_reply:
-	tdbus_free_message(bus_msg);
+	//only destroy msg if succeed
 	return false;
 }
 
