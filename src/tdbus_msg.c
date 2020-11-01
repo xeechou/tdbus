@@ -30,6 +30,7 @@
 
 #include <tdbus.h>
 #include "tdbus_internal.h"
+#include "tdbus_message.h"
 #include "tdbus_msg_internal.h"
 #include "tdbus_message_iter.h"
 
@@ -307,6 +308,34 @@ tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *bus_msg,
 	return true;
 err_reply:
 	//only destroy msg if succeed
+	return false;
+}
+
+TDBUS_EXPORT bool
+tdbus_send_method_call(struct tdbus *bus, const char *dest, const char *path,
+                       const char *interface, const char *method,
+                       struct tdbus_reply *reply, const char *fmt, ...)
+{
+	struct tdbus_message *msg = tdbus_call_method(dest, path, interface,
+	                                              method, NULL, NULL);
+	if (!msg) {
+		return false;
+	} else {
+		bool ret;
+		va_list ap;
+
+		va_start(ap, fmt);
+		ret = tdbus_writev(msg, fmt, ap);
+		va_end(ap);
+		if (!ret)
+			goto err_write;
+	}
+	if (!tdbus_send_message_block(bus, msg, reply))
+		goto err_write;
+
+	return true;
+err_write:
+	tdbus_free_message(msg);
 	return false;
 }
 

@@ -175,14 +175,22 @@ void
 tdbus_send_message(struct tdbus *bus, struct tdbus_message *msg);
 
 /**
- * @brief send message and wait for reply
- *
- * The message can only be a method call. The function returns false on erro
- * occurs. It also resues the @param msg for the reply.
+ * @brief send message in blocking mode, msg is reused in reply
  */
 bool
-tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *msg,
+tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *bus_msg,
                          struct tdbus_reply *reply);
+
+/**
+ * @brief send message and wait for reply
+ *
+ * The message can only be a method call. The function returns false on error
+ * occurs.
+ */
+bool
+tdbus_send_method_call(struct tdbus *bus, const char *dest, const char *path,
+                       const char *interface, const char *method,
+                       struct tdbus_reply *reply, const char *fmt, ...);
 
 #ifdef __cplusplus
 }
