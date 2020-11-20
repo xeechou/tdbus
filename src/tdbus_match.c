@@ -105,7 +105,6 @@ DBusHandlerResult
 tdbus_handle_signal(struct tdbus *bus, struct tdbus_signal *signal)
 {
 	struct tdbus_signal_match *match;
-	const char *path, *iface, *member, *sender;
 	const char *format = "type='signal',"
 		"sender='%s',"
 		"interface='%s',"
@@ -113,8 +112,11 @@ tdbus_handle_signal(struct tdbus *bus, struct tdbus_signal *signal)
 		"path='%s'";
 
 	tdbus_array_for_each(match, &bus->matched_signals) {
-		sscanf(match->match, format, &sender, &iface,
-		       &member, &path);
+		size_t len = strlen(match->match) + 1;
+		const char path[len], iface[len], member[len], sender[len];
+
+		sscanf(match->match, format, sender, iface,
+		       member, path);
 		if (!strcmp(signal->sender, sender) &&
 		    !strcmp(signal->interface, iface) &&
 		    !strcmp(signal->signal_name, member)) {
