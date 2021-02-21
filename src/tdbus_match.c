@@ -140,9 +140,8 @@ tdbus_handle_signal(struct tdbus *bus, struct tdbus_signal *signal)
 
 
 	tdbus_array_for_each(match, &bus->matched_signals) {
-
-		if (!strcmp(signal->sender, match->sender) &&
-		    !strcmp(signal->interface, match->iface) &&
+		//mimic dbus_message_is_signal
+		if (!strcmp(signal->interface, match->iface) &&
 		    !strcmp(signal->signal_name, match->member)) {
 			signal->user_data = match->user_data;
 			match->reader(signal);
