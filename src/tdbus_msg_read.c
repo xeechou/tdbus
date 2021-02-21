@@ -188,7 +188,7 @@ tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
 
 	dbus_message_iter_recurse(itr, &sub_itr);
 	dbus_signature_iter_recurse(sitr, &sub_sitr);
-	dbus_type = dbus_message_iter_get_arg_type(&sub_itr);
+	dbus_type = dbus_message_iter_get_element_type(itr);
 	type = tdbus_arg_type_from_dbus(dbus_type);
 
 	if (dbus_signature_iter_get_element_type(sitr) != dbus_type)
