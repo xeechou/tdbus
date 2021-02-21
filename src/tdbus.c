@@ -112,6 +112,7 @@ tdbus_new(enum TDBUS_TYPE type)
 	bus->conn = conn;
 	bus->non_block = false;
 	bus->n_objs = 0;
+	bus->logger = NULL;
 	tdbus_array_init(&bus->matched_signals);
 	tdbus_array_init(&bus->added_methods);
 
@@ -160,4 +161,10 @@ tdbus_dispatch_once(struct tdbus *bus)
 			//oops!, some error happened
 		}
 	}
+}
+
+TDBUS_EXPORT void
+tdbus_set_logger(struct tdbus *bus, tdbus_logger_fn logger)
+{
+	bus->logger = logger;
 }

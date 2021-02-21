@@ -22,7 +22,7 @@
 #ifndef TDBUS_INTERNAL_H
 #define TDBUS_INTERNAL_H
 
-#include "tdbus_watcher.h"
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <dbus/dbus.h>
@@ -82,6 +82,7 @@ struct tdbus {
 	struct DBusConnection *conn;
 	char *service_name;
 	bool non_block;
+	tdbus_logger_fn logger;
 
 	/* watchers */
 	tdbus_add_watch_f add_watch_cb;
@@ -95,7 +96,6 @@ struct tdbus {
 	tdbus_rm_timeout_f rm_timeout_cb;
 
 	struct tdbus_array matched_signals;
-
 
 	/* server data */
 	int n_objs;
@@ -119,7 +119,28 @@ void tdbus_unmatch_signals(struct tdbus *bus);
 
 DBusHandlerResult tdbus_handle_signal(struct tdbus *bus,
                                       struct tdbus_signal *signal);
+static inline void
+tdbus_log(struct tdbus *bus, enum tdbus_log_level level, const char *fmt, ...)
+{
+	va_list args;
+	va_start(args, fmt);
+	if (bus->logger)
+		bus->logger(level, fmt, args);
+	va_end(args);
+}
 
+static inline bool
+tdbus_handle_error(struct tdbus *bus, enum tdbus_log_level level,
+                   const char *fn_name, const DBusError *err)
+{
+	bool pass = true;
+	const char *fmt = "%s failed with error message: %s:%s";
+	if (dbus_error_is_set(err)) {
+		pass = false;
+		tdbus_log(bus, level, fmt, fn_name, err->name, err->message);
+	}
+	return pass;
+}
 
 #ifdef __cplusplus
 }

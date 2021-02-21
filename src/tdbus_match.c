@@ -41,6 +41,12 @@ struct tdbus_signal_match {
 	void *user_data;
 };
 
+static const char *MATCH_FMT = "type='signal',"
+	"sender='%s',"
+	"interface='%s',"
+	"member='%s',"
+	"path='%s'";
+
 void
 tdbus_unmatch_signals(struct tdbus *bus)
 {
@@ -59,26 +65,23 @@ tdbus_match_signal(struct tdbus *bus,const char *sender,
                    const char *path, void *user_data,
                    tdbus_read_signal_f read_signal)
 {
+	bool ret = true;
 	struct tdbus_signal_match match, *copy;
 	char *match_str = NULL;
 	size_t match_len;
-	const char *format = "type='signal',"
-		"sender='%s',"
-		"interface='%s',"
-		"member='%s',"
-		"path='%s'";
+	DBusError dbus_err;
 
 	if (!sender || !member || !iface || !path ||
 	    !read_signal)
 		return false;
 
 	match_len = strlen(sender) + strlen(member) +
-		strlen(iface) + strlen(path) + strlen(format);
+		strlen(iface) + strlen(path) + strlen(MATCH_FMT);
 	match_str = malloc(match_len + 1);
 	if (!match_str)
 		return false;
 
-	sprintf(match_str, format, sender, iface, member, path);
+	sprintf(match_str, MATCH_FMT, sender, iface, member, path);
 
 	match.reader = read_signal;
 	match.user_data = user_data;
@@ -91,32 +94,28 @@ tdbus_match_signal(struct tdbus *bus,const char *sender,
 	}
 	memcpy(copy, &match, sizeof(match));
 
-	dbus_bus_add_match(bus->conn, "type='signal',"
-	                   "sender='%s',"
-	                   "interface='%s',"
-	                   "member='%s',"
-	                   "path='%s'", NULL);
+	dbus_error_init(&dbus_err);
+	dbus_bus_add_match(bus->conn, match_str, &dbus_err);
+	ret = tdbus_handle_error(bus, TDBUS_LOG_ERRO, __FUNCTION__,
+	                         &dbus_err);
+	dbus_error_free(&dbus_err);
 
-	return true;
-
+	return ret;
 }
 
 DBusHandlerResult
 tdbus_handle_signal(struct tdbus *bus, struct tdbus_signal *signal)
 {
 	struct tdbus_signal_match *match;
-	const char *format = "type='signal',"
-		"sender='%s',"
-		"interface='%s',"
-		"member='%s',"
-		"path='%s'";
+
 
 	tdbus_array_for_each(match, &bus->matched_signals) {
 		size_t len = strlen(match->match) + 1;
 		const char path[len], iface[len], member[len], sender[len];
 
-		sscanf(match->match, format, sender, iface,
-		       member, path);
+		len = sscanf(match->match, MATCH_FMT, sender, iface,
+		             member, path);
+		assert(len == 4);
 		if (!strcmp(signal->sender, sender) &&
 		    !strcmp(signal->interface, iface) &&
 		    !strcmp(signal->signal_name, member)) {

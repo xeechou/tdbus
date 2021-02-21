@@ -47,7 +47,15 @@ enum tdbus_event_mask {
 	TDBUS_ENABLED = 1 << 2,
 };
 
+enum tdbus_log_level {
+	TDBUS_LOG_DBUG,
+	TDBUS_LOG_INFO,
+	TDBUS_LOG_WARN,
+	TDBUS_LOG_ERRO,
+};
 
+typedef void (*tdbus_logger_fn)(enum tdbus_log_level level, const char *fmt,
+                                va_list ap);
 
 struct tdbus *
 tdbus_new(enum TDBUS_TYPE type);
@@ -57,6 +65,9 @@ tdbus_new_server(enum TDBUS_TYPE, const char *bus_name);
 
 void
 tdbus_delete(struct tdbus *bus);
+
+void
+tdbus_set_logger(struct tdbus *bus, tdbus_logger_fn logger);
 
 bool
 tdbus_match_signal(struct tdbus *bus,const char *sender,

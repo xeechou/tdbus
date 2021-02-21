@@ -316,6 +316,8 @@ tdbus_server_handle_method(DBusConnection *conn, DBusMessage *message,
 	return result;
 
 err_get_property:
+	tdbus_handle_error(bus, TDBUS_LOG_WARN, __FUNCTION__, &err);
+	dbus_error_free(&err);
 
 err_new_reply:
 	if (!reply)
@@ -392,9 +394,8 @@ tdbus_server_add_methods(struct tdbus *bus, const char *obj_path,
 	dbus_error_init(&err);
 	if ((dbus_connection_try_register_object_path(bus->conn,
 	                                              obj_path, &server_vtable,
-	                                              bus, &err)) != TRUE) {
-		perror("register object path not succeed\n");
-	}
+	                                              bus, &err)) != TRUE)
+		tdbus_handle_error(bus, TDBUS_LOG_WARN, __FUNCTION__, &err);
 	dbus_error_free(&err);
 
 	//add new object path
