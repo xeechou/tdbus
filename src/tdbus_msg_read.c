@@ -63,8 +63,8 @@ tdbus_msg_itr_get_arr(struct tdbus_message_itr *itr, enum tdbus_arg_type type,
 	void **value_ptr, *value;
 	union tdbus_arg_value *curr;
 
-	value = malloc(count * tdbus_get_msg_arg_size(type));
-	if (!value)
+	value = count ? malloc(count * tdbus_get_msg_arg_size(type)) : NULL;
+	if (count && !value)
 		return NULL;
 
 	if (!itr->args) {
@@ -74,7 +74,7 @@ tdbus_msg_itr_get_arr(struct tdbus_message_itr *itr, enum tdbus_arg_type type,
 	} else {
 		curr = _tdbus_msg_itr_next(itr, type);
 		curr->arr.n = count;
-		curr->arr.type = tdbus_arg_type_from_dbus(type);
+		curr->arr.type = type;
 		curr->arr.a = value;
 	}
 	return value;
@@ -188,7 +188,7 @@ tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
 
 	dbus_message_iter_recurse(itr, &sub_itr);
 	dbus_signature_iter_recurse(sitr, &sub_sitr);
-	dbus_type = dbus_message_iter_get_arg_type(&sub_itr);
+	dbus_type = dbus_message_iter_get_element_type(itr);
 	type = tdbus_arg_type_from_dbus(dbus_type);
 
 	if (dbus_signature_iter_get_element_type(sitr) != dbus_type)
@@ -196,15 +196,15 @@ tdbus_read_array(DBusSignatureIter *sitr, DBusMessageIter *itr,
 
 	count = dbus_message_iter_get_element_count(itr);
 	size = count * tdbus_get_msg_arg_size(type);
-        if (size <= 0)
-		return false;
 
         value = tdbus_msg_itr_get_arr(mitr, type, count);
-        if (!value)
+        if (count && !value)
 	        return false;
 
         ////step 2 copying values
-	if (tdbus_type_is_fixed(type)) {
+        if (count == 0) {
+	        //if we are in a empty array, do nothing
+        } else if (tdbus_type_is_fixed(type)) {
 		//as in document, the iter should be "in" the array as subiter
 	        dbus_message_iter_get_fixed_array(&sub_itr, &arr_ptr, &count);
 	        memcpy(value, arr_ptr, size);
