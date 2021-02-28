@@ -283,15 +283,20 @@ tdbus_send_message_block(struct tdbus *bus, struct tdbus_message *bus_msg,
                          struct tdbus_reply *reply)
 {
 	DBusMessage *reply_msg;
+	DBusError dbus_err;
 
 	if (dbus_message_get_type(bus_msg->message) !=
 	    DBUS_MESSAGE_TYPE_METHOD_CALL)
 		return false;
 
+	dbus_error_init(&dbus_err);
 	bus_msg->bus = bus;
 	reply_msg = dbus_connection_send_with_reply_and_block(bus->conn,
 	                                                      bus_msg->message,
-	                                                      -1, NULL);
+	                                                      -1, &dbus_err);
+	tdbus_handle_error(bus, TDBUS_LOG_WARN, __FUNCTION__, &dbus_err);
+	dbus_error_free(&dbus_err);
+
 	if (!reply_msg) {
 		goto err_reply;
 	}
