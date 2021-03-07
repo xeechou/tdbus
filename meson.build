@@ -14,7 +14,7 @@ global_args_maybe = [
 	'-Wno-unused-parameter',
 	'-Wno-missing-field-initializers',
 	'-Wno-pedantic',
-
+	'-Wno-unused-result',
 ]
 global_args = []
 
