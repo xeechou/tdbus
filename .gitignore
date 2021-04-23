@@ -1,6 +1,7 @@
 **/compile_commands.json
-build*/*
+build*
 doc*
 .clangd/*
 .gdb_history
-.cache/*
+.cache
+.clang-tidy
